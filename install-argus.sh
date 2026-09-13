@@ -18,29 +18,23 @@ HAPP_VERSION_FIXED="4.3.0"
 # АВТООПРЕДЕЛЕНИЕ СЕТЕВЫХ ПАРАМЕТРОВ
 # ============================================================
 
-detect_wan_if_keenetic() {
-    command -v ndmc >/dev/null 2>&1 || return 1
-    ndmc -c "show interface" 2>/dev/null \
-        | awk '/^Interface,/{f=1;next} f && /Up/ && /inet/ {print $2}' \
-        | head -1
+is_lan_iface() {
+    case "$1" in
+        br0|br1|br-lan|br-guest|lo|ezcfg0|bond0) return 0 ;;
+        *) return 1 ;;
+    esac
 }
 
 detect_wan_if() {
-    local k
-    k=$(detect_wan_if_keenetic || true)
-    if [ -n "$k" ]; then
-        echo "$k"
-        return 0
-    fi
     local rt
     rt=$(ip route show default 2>/dev/null | awk '/default/ {print $5; exit}')
-    if [ -n "$rt" ] && [ "$rt" != "lo" ] && [ "$rt" != "br0" ]; then
+    if [ -n "$rt" ] && ! is_lan_iface "$rt"; then
         echo "$rt"
         return 0
     fi
     local iface
     for iface in lte_br0 lte0 lte1 usb0 usb1 usb2 wwan0 wwan1 ppp0 eth3 eth2.2 nwg0 nwg1; do
-        if ip -4 addr show dev "$iface" 2>/dev/null | grep -q "inet "; then
+        if ! is_lan_iface "$iface" && ip -4 addr show dev "$iface" 2>/dev/null | grep -q "inet "; then
             echo "$iface"
             return 0
         fi
@@ -50,11 +44,300 @@ detect_wan_if() {
 
 list_wan_candidates() {
     ip -4 -o addr show 2>/dev/null \
-        | awk '$2 != "lo" && $2 != "br0" {print $2}' \
+        | awk '$2 != "lo" && $2 != "br0" && $2 != "br1" && $2 != "br-lan" && $2 != "ezcfg0" {print $2}' \
         | sort -u
 }
 
 detect_wan_ip() {
+    local iface="$1"
+    [ -z "$iface" ] && return 1
+    ip -4 -o addr show dev "$iface" 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -1
+}
+
+detect_wan_gateway() {
+    local iface="$1"
+    [ -z "$iface" ] && return 1
+    ip route show dev "$iface" 2>/dev/null | awk '/default/ {print $3; exit}'
+}
+
+detect_lan_settings() {
+    local bridge
+    for bridge in br0 br-lan; do
+        local cidr
+        cidr=$(ip -4 addr show dev "$bridge" 2>/dev/null | awk '/inet / {print $2; exit}')
+        if [ -n "$cidr" ]; then
+            local ip="${cidr%/*}"
+            local prefix="${cidr#*/}"
+            local net
+            if [ "$prefix" = "24" ]; then
+                net="$(echo "$ip" | cut -d. -f1-3).0/24"
+            else
+                net="$cidr"
+            fi
+            echo "$net|$ip"
+            return 0
+        fi
+    done
+    return 1
+}
+
+# ============================================================
+# АВТООПРЕДЕЛЕНИЕ СУЩЕСТВУЮЩЕГО TG-ТУННЕЛЯ
+# ============================================================
+
+detect_existing_tg_tunnel() {
+    local found=""
+
+    if command -v ipset >/dev/null 2>&1; then
+        local sets
+        sets=$(ipset list -n 2>/dev/null | grep -iE 'telegram|^tg|_tg_')
+        if [ -n "$sets" ]; then
+            found="$found
+    ipset: $(echo "$sets" | tr '\n' ' ')"
+        fi
+    fi
+
+    if command -v iptables >/dev/null 2>&1; then
+        local hit
+        hit=$(iptables -t nat -S 2>/dev/null \
+            | grep -iE 'telegram|TG_|_TG|XRAY_TG' \
+            | grep -viE 'XRAY_TG_PREROUTING|XRAY_TG_')
+        if [ -n "$hit" ]; then
+            found="$found
+    iptables: $(echo "$hit" | head -1 | cut -c1-90)"
+        fi
+    fi
+
+    local pat proc
+    for pat in 'z2k' 'z4r' 'sing-box' 'tg-tunnel' 'telegram-proxy' 'mtg' 'mtproto'; do
+        proc=$(ps 2>/dev/null | grep -v grep | grep -iE "$pat" | head -1)
+        if [ -n "$proc" ]; then
+            found="$found
+    процесс: $(echo "$proc" | awk '{for(i=5;i<=NF;i++) printf "%s ", $i; print ""}' | cut -c1-70)"
+            break
+        fi
+    done
+
+    [ -n "$found" ] && { echo "$found"; return 0; }
+    return 1
+}
+
+# ============================================================
+# ШАГ 0: ЗАВИСИМОСТИ
+# ============================================================
+clear 2>/dev/null || true
+echo "============================================================"
+echo "  ШАГ 0. УСТАНОВКА ЗАВИСИМОСТЕЙ"
+echo "============================================================"
+echo ""
+
+if ! mount 2>/dev/null | grep -q " /opt "; then
+    echo "❌ Каталог /opt не смонтирован — Entware не установлен."
+    exit 1
+fi
+
+for pkg_cmd in "jq:jq" "curl:curl" "ipset:ipset"; do
+    pkg="${pkg_cmd%%:*}"
+    cmd="${pkg_cmd##*:}"
+    if ! command -v "$cmd" >/dev/null 2>&1; then
+        echo "⬇️  Устанавливаю $pkg..."
+        opkg update >/dev/null 2>&1 || true
+        opkg install "$pkg" || echo "⚠️ $pkg не установлен"
+    fi
+    if command -v "$cmd" >/dev/null 2>&1; then
+        echo "✅ $cmd"
+    else
+        echo "❌ $cmd"
+    fi
+done
+
+if ! command -v xray >/dev/null 2>&1 && [ ! -x /opt/sbin/xray ]; then
+    echo "⬇️  Устанавливаю Xray..."
+    opkg install xray || {
+        ARCH=$(uname -m)
+        case "$ARCH" in
+            aarch64)      XRAY_ARCH="arm64-v8a" ;;
+            armv7l|armv7) XRAY_ARCH="arm32-v7a" ;;
+            mips)         XRAY_ARCH="mips32" ;;
+            mipsel)       XRAY_ARCH="mips32le" ;;
+            *) echo "❌ Неизвестная архитектура"; exit 1 ;;
+        esac
+        TMPDIR=$(mktemp -d)
+        URL="https://github.com/XTLS/Xray-core/releases/latest/download/Xray-linux-${XRAY_ARCH}.zip"
+        curl -fsSL -o "$TMPDIR/xray.zip" "$URL" || exit 1
+        command -v unzip >/dev/null 2>&1 || opkg install unzip >/dev/null 2>&1
+        unzip -o "$TMPDIR/xray.zip" -d "$TMPDIR" >/dev/null
+        mv "$TMPDIR/xray" /opt/sbin/xray
+        chmod +x /opt/sbin/xray
+        rm -rf "$TMPDIR"
+    }
+fi
+echo "✅ Xray"
+
+mkdir -p /opt/etc/xray/configs /opt/var/log/xray
+echo ""
+printf "Нажмите Enter для продолжения..."
+read DUMMY
+
+# ============================================================
+# ШАГ 0.5: СЕТЕВЫЕ ПАРАМЕТРЫ (автоопределение)
+# ============================================================
+clear 2>/dev/null || true
+cat << 'HELP'
+============================================================
+   ШАГ 0.5. ОПРЕДЕЛЕНИЕ СЕТЕВЫХ ПАРАМЕТРОВ
+============================================================
+Скрипту нужны три параметра сети:
+  - WAN-интерфейс (через который роутер смотрит в интернет);
+  - адрес локальной сети (LAN);
+  - IP роутера в локальной сети.
+
+Определяю автоматически. Если что-то определится неверно —
+можно переопределить вручную.
+============================================================
+HELP
+echo ""
+
+DETECTED_WAN=$(detect_wan_if || true)
+WAN_CANDIDATES=$(list_wan_candidates)
+
+echo "Найдены интерфейсы с IPv4:"
+i=0
+for iface in $WAN_CANDIDATES; do
+    i=$((i+1))
+    addr=$(ip -4 -o addr show dev "$iface" 2>/dev/null | awk '{print $4}')
+    marker=""
+    [ "$iface" = "$DETECTED_WAN" ] && marker=" ← предлагаю"
+    printf "  %2d) %-14s %s%s\n" "$i" "$iface" "$addr" "$marker"
+done
+echo ""
+printf "WAN-интерфейс [%s]: " "${DETECTED_WAN:-не определён}"
+read INPUT_WAN
+if [ -n "$INPUT_WAN" ]; then
+    WAN_IF="$INPUT_WAN"
+elif [ -n "$DETECTED_WAN" ]; then
+    WAN_IF="$DETECTED_WAN"
+else
+    echo "❌ WAN-интерфейс не определён и не указан."
+    echo "   Укажите вручную в /opt/etc/argus-k.sh (переменная WAN_IF)."
+    exit 1
+fi
+
+if ! ip link show dev "$WAN_IF" >/dev/null 2>&1; then
+    echo "⚠️  Интерфейс '$WAN_IF' не найден в системе."
+    printf "   Продолжить? (y/N): "
+    read OK
+    case "$OK" in y|Y|yes|YES) ;; *) exit 1 ;; esac
+fi
+echo "✅ WAN_IF = $WAN_IF"
+echo ""
+
+WAN_IF_IP=$(detect_wan_ip "$WAN_IF" || true)
+WAN_IF_GW=$(detect_wan_gateway "$WAN_IF" || true)
+
+if [ -n "$WAN_IF_IP" ]; then
+    echo "✅ WAN_IF имеет IPv4: $WAN_IF_IP"
+    [ -n "$WAN_IF_GW" ] && echo "   Шлюз оператора: $WAN_IF_GW"
+else
+    echo "⚠️  На интерфейсе '$WAN_IF' нет IPv4."
+    echo "   Возможные причины:"
+    echo "     - модем не подключён / нет сессии LTE;"
+    echo "     - выбран не тот интерфейс;"
+    echo "     - IP появится позже (KeeneticOS поднимает ndm)."
+    printf "   Продолжить всё равно? (y/N): "
+    read OK_WAN_IP
+    case "$OK_WAN_IP" in
+        y|Y|yes|YES) ;;
+        *)
+            echo "Перезапустите установку, когда LTE-сессия активна."
+            exit 1
+            ;;
+    esac
+fi
+
+if [ -n "$WAN_IF_IP" ]; then
+    echo ""
+    echo "Проверяю связь через $WAN_IF..."
+    if ping -I "$WAN_IF" -c 2 -W 3 77.88.8.8 >/dev/null 2>&1; then
+        echo "✅ ping 77.88.8.8 через $WAN_IF — OK"
+    elif ping -I "$WAN_IF" -c 2 -W 3 1.1.1.1 >/dev/null 2>&1; then
+        echo "✅ ping 1.1.1.1 через $WAN_IF — OK (Yandex DNS недоступен)"
+    else
+        echo "⚠️  ping через $WAN_IF не проходит. Возможно:"
+        echo "     - оператор блокирует ICMP;"
+        echo "     - неверный интерфейс;"
+        echo "     - нет связи с модемом."
+        printf "   Продолжить? (y/N): "
+        read OK_PING
+        case "$OK_PING" in y|Y|yes|YES) ;; *) exit 1 ;; esac
+    fi
+fi
+echo ""
+
+DETECTED_LAN=$(detect_lan_settings || true)
+DETECTED_LAN_NET="${DETECTED_LAN%%|*}"
+DETECTED_LAN_IP="${DETECTED_LAN##*|}"
+
+if [ -n "$DETECTED_LAN_NET" ] && [ "$DETECTED_LAN" != "$DETECTED_LAN_NET" ]; then
+    echo "Локальная сеть определена: $DETECTED_LAN_NET"
+    echo "IP роутера в LAN: $DETECTED_LAN_IP"
+    printf "Использовать эти значения? (Y/n): "
+    read OK_LAN
+    case "$OK_LAN" in
+        n|N|no|NO)
+            printf "  Локальная сеть [%s]: " "$DETECTED_LAN_NET"
+            read INPUT_LAN
+            LOCAL_NET="${INPUT_LAN:-$DETECTED_LAN_NET}"
+            printf "  IP роутера [%s]: " "$DETECTED_LAN_IP"
+            read INPUT_IP
+            ROUTER_IP="${INPUT_IP:-$DETECTED_LAN_IP}"
+            ;;
+        *)
+            LOCAL_NET="$DETECTED_LAN_NET"
+            ROUTER_IP="$DETECTED_LAN_IP"
+            ;;
+    exit 1
+fi
+
+is_filled() { [ -n "$1" ] && ! echo "$1" | grep -q "ВСТАВЬТЕ_"; }
+is_url() { echo "$1" | grep -qE '^https?://[^ ]+$'; }
+is_tg_token() { echo "$1" | grep -qE '^[0-9]{8,12}:[A-Za-z0-9_-]{30,}$'; }
+is_tg_chat_ids() { echo "$1" | grep -qE '^-?[0-9]+( +-?[0-9]+)*$'; }
+
+HAPP_VERSION_FIXED="4.3.0"
+
+# ============================================================
+# АВТООПРЕДЕЛЕНИЕ СЕТЕВЫХ ПАРАМЕТРОВ
+# ============================================================
+
+
+detect_wan_if() {
+    is_lan_iface() {
+    case "$1" in
+        br0|br1|br-lan|br-guest|lo|ezcfg0|bond0) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+detect_wan_if() {
+    local rt
+    rt=$(ip route show default 2>/dev/null | awk '/default/ {print $5; exit}')
+    if [ -n "$rt" ] && ! is_lan_iface "$rt"; then
+        echo "$rt"
+        return 0
+    fi
+    local iface
+    for iface in lte_br0 lte0 lte1 usb0 usb1 usb2 wwan0 wwan1 ppp0 eth3 eth2.2 nwg0 nwg1; do
+        if ! is_lan_iface "$iface" && ip -4 addr show dev "$iface" 2>/dev/null | grep -q "inet "; then
+            echo "$iface"
+            return 0
+        fi
+    done
+    return 1
+}
+list_wan_candidates() {
+    
+ct_wan_ip() {
     local iface="$1"
     [ -z "$iface" ] && return 1
     ip -4 -o addr show dev "$iface" 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -1

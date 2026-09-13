@@ -192,12 +192,6 @@ load_current_config() {
 }
 
 # ==================== АВТООПРЕДЕЛЕНИЕ WAN (FALLBACK) ========================
-autodetect_wan_if_keenetic() {
-    command -v ndmc >/dev/null 2>&1 || return 1
-    ndmc -c "show interface" 2>/dev/null \
-        | awk '/^Interface,/{f=1;next} f && /Up/ && /inet/ {print $2}' \
-        | head -1
-}
 
 autodetect_wan_if() {
     local k
