@@ -31,7 +31,7 @@ is_lan_iface() {
 
 detect_wan_if() {
     local rt
-    rt=$(ip route show default 2>/dev/null | awk '/default/ {print $5; exit}')
+    rt=$(ip route show default 2>/dev/null | sed -n 's/.* dev \([^ ]*\).*/\1/p' | head -1)
     if [ -n "$rt" ] && ! is_lan_iface "$rt"; then
         echo "$rt"
         return 0
