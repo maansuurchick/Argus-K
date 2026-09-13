@@ -1,13 +1,5 @@
 #!/bin/sh
 # install-bootstrap.sh — установщик Argus-K
-#
-# Argus-K — автоматическое управление Xray на роутерах Keenetic
-# с LTE-модемом (KeeneticOS + Entware). Рассчитан на ситуацию,
-# когда мобильный оператор включает режим белых списков.
-#
-# Использование:
-#   curl -fsSL https://raw.githubusercontent.com/USER/argus-k/main/install-bootstrap.sh | sh
-#
 set -e
 
 BRANCH="${BRANCH:-main}"
@@ -49,7 +41,7 @@ for pair in \
 do
     src="${pair%%:*}"
     dst="${pair##*:}"
-    echo "Скачиваю $src → $dst"
+    echo "Скачиваю $src -> $dst"
     mkdir -p "$(dirname "$dst")"
     if curl -fsSL -o "$dst" "${BASE_URL}/${src}"; then
         case "$src" in
@@ -58,20 +50,38 @@ do
         esac
         echo "  OK"
     else
-        echo "  ❌ Не удалось скачать $src"
+        echo "  ОШИБКА: не удалось скачать $src"
         case "$src" in
             argus-k.sh|install-argus.sh) exit 1 ;;
         esac
     fi
 done
 
-[ -s "$ARGUS_DST" ] || { echo "❌ argus-k.sh пустой"; exit 1; }
+[ -s "$ARGUS_DST" ] || { echo "argus-k.sh пустой"; exit 1; }
 head -1 "$ARGUS_DST" | grep -q "^#!/bin/sh" || {
-    echo "❌ argus-k.sh не похож на shell-скрипт"
+    echo "argus-k.sh не похож на shell-скрипт"
     exit 1
 }
 
 echo ""
-echo "=== Запуск инсталлера ==="
+echo "=== Все файлы скачаны ==="
 echo ""
-exec "$INSTALLER_DST"
+
+# Инсталлеру нужен TTY для read. Если скрипт запущен через pipe
+# (curl ... | sh), stdin занят и read не работает. Переключаемся
+# на /dev/tty, если он доступен.
+if [ -t 0 ]; then
+    exec "$INSTALLER_DST"
+elif [ -r /dev/tty ] && [ -c /dev/tty ]; then
+    echo "Обнаружен запуск через pipe — переключаю ввод на /dev/tty"
+    exec "$INSTALLER_DST" < /dev/tty
+else
+    echo "Интерактивный ввод недоступен (нет /dev/tty)."
+    echo ""
+    echo "Файлы скачаны, инсталлер не запущен."
+    echo "Запустите вручную:"
+    echo ""
+    echo "  sh $INSTALLER_DST"
+    echo ""
+    exit 0
+fi
