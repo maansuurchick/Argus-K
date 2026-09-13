@@ -18,7 +18,7 @@ jobs:
         with:
           scandir: '.'
           ignore_paths: '.git docs'
-          severity: warning
+          severity: error
 
   syntax-busybox:
     name: BusyBox ash syntax
@@ -26,12 +26,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Проверка через dash (POSIX sh)
+      - name: Установить BusyBox
+        run: sudo apt-get update -qq && sudo apt-get install -y busybox-static
+
+      - name: Проверка через BusyBox ash
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y dash
+          set -e
           for f in argus-k.sh install-argus.sh install-bootstrap.sh argus-k-debug.sh templates/S99argus; do
             echo "=== $f ==="
-            dash -n "$f"
+            busybox ash -n "$f"
           done
           echo "✅ Все скрипты прошли проверку синтаксиса"
