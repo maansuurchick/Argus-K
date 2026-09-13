@@ -1,0 +1,44 @@
+#!/bin/sh
+# S99argus — автозагрузка Argus-K
+
+SCRIPT="/opt/etc/argus-k.sh"
+PIDFILE="/tmp/argus-k/argus-k.pid"
+
+case "$1" in
+    start)
+        if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE" 2>/dev/null)" 2>/dev/null; then
+            echo "argus-k already running"; exit 0
+        fi
+        echo "Starting argus-k..."
+        "$SCRIPT" >/dev/null 2>&1 &
+        sleep 15
+        if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE" 2>/dev/null)" 2>/dev/null; then
+            echo "argus-k started (PID $(cat "$PIDFILE"))"
+        else
+            echo "argus-k failed to start"
+            exit 1
+        fi
+        ;;
+    stop)
+        if [ -f "$PIDFILE" ]; then
+            PID=$(cat "$PIDFILE")
+            kill "$PID" 2>/dev/null
+            sleep 2
+            kill -9 "$PID" 2>/dev/null
+            rm -f "$PIDFILE"
+        fi
+        for p in $(ps | grep argus-k.sh | grep -v grep | awk '{print $1}'); do
+            kill -9 "$p" 2>/dev/null
+        done
+        echo "argus-k stopped"
+        ;;
+    restart) "$0" stop; sleep 2; "$0" start ;;
+    status)
+        if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE" 2>/dev/null)" 2>/dev/null; then
+            echo "argus-k running (PID $(cat "$PIDFILE"))"
+        else
+            echo "argus-k not running"
+        fi
+        ;;
+    *) echo "Usage: $0 {start|stop|restart|status}"; exit 1 ;;
+esac

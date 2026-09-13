@@ -1,0 +1,37 @@
+name: Shell Syntax Check
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  shellcheck:
+    name: ShellCheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: ShellCheck
+        uses: ludeeus/action-shellcheck@master
+        with:
+          scandir: '.'
+          ignore_paths: '.git docs'
+          severity: warning
+
+  syntax-busybox:
+    name: BusyBox ash syntax
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Проверка через dash (POSIX sh)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y dash
+          for f in argus-k.sh install-argus.sh install-bootstrap.sh argus-k-debug.sh templates/S99argus; do
+            echo "=== $f ==="
+            dash -n "$f"
+          done
+          echo "✅ Все скрипты прошли проверку синтаксиса"
