@@ -1,5 +1,6 @@
 #!/bin/sh
 # install-argus.sh — интерактивная настройка /opt/etc/argus-k.sh
+CONF=/opt/etc/argus-k.conf
 FILE=/opt/etc/argus-k.sh
 
 if [ ! -f "$FILE" ]; then
@@ -23,7 +24,7 @@ HAPP_VERSION_FIXED="4.3.0"
 # ============================================================
 load_current_value() {
     local raw
-    raw=$(grep "^${1}=" "$FILE" 2>/dev/null | head -1)
+    raw=$(grep "^${1}=" "$CONF" 2>/dev/null | head -1)
     [ -z "$raw" ] && { echo ""; return; }
     echo "$raw" | sed -n 's/^[^=]*="\([^"]*\)".*$/\1/p'
 }
@@ -90,7 +91,9 @@ detect_wan_ip() {
 detect_wan_gateway() {
     local iface="$1"
     [ -z "$iface" ] && return 1
-    ip route show dev "$iface" 2>/dev/null | awk '/default/ {print $3; exit}'
+    ip route show dev "$iface" 2>/dev/null \
+        | sed -n 's/.*via \([^ ]*\).*/\1/p' \
+        | head -1
 }
 
 detect_lan_settings() {
@@ -945,6 +948,7 @@ ESC_WAN_IF=$(sed_escape_repl "$WAN_IF")
 ESC_LOCAL_NET=$(sed_escape_repl "$LOCAL_NET")
 ESC_ROUTER_IP=$(sed_escape_repl "$ROUTER_IP")
 
+[ ! -f "$CONF" ] && touch "$CONF"
 sed -i \
   -e "s|^TG_TOKEN=.*|TG_TOKEN=\"$ESC_TG_TOKEN\"|" \
   -e "s|^TG_CHAT_IDS=.*|TG_CHAT_IDS=\"$ESC_TG_CHAT_IDS\"|" \
@@ -960,7 +964,7 @@ sed -i \
   -e "s|^WAN_IF=.*|WAN_IF=\"$ESC_WAN_IF\"|" \
   -e "s|^LOCAL_NET=.*|LOCAL_NET=\"$ESC_LOCAL_NET\"|" \
   -e "s|^ROUTER_IP=.*|ROUTER_IP=\"$ESC_ROUTER_IP\"|" \
-  "$FILE"
+  "$CONF"
 chmod +x "$FILE"
 
 if sh -n "$FILE" 2>/dev/null; then

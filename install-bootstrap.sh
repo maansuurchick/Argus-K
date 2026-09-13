@@ -12,6 +12,7 @@ ARGUS_DST="/opt/etc/argus-k.sh"
 DEBUG_DST="/opt/etc/argus-k-debug.sh"
 INIT_DST="/opt/etc/init.d/S99argus"
 SPLIT_DST="/opt/etc/argus-k-split-domains.txt"
+CONF_DST="/opt/etc/argus-k.conf"
 
 if [ "$(id -u)" != "0" ]; then
     echo "ОШИБКА: запустите от root"
@@ -57,6 +58,23 @@ do
     fi
 done
 
+# argus-k.conf создаётся только если его ещё нет
+if [ -f "$CONF_DST" ]; then
+    echo ""
+    echo "argus-k.conf уже существует — настройки не тронуты."
+else
+    echo ""
+    echo "Создаю шаблон argus-k.conf"
+    if curl -fsSL -o "$CONF_DST" "${BASE_URL}/templates/argus-k.conf"; then
+        chmod 600 "$CONF_DST"
+        echo "  OK"
+    else
+        echo "  Не удалось скачать шаблон — создаю пустой."
+        : > "$CONF_DST"
+        chmod 600 "$CONF_DST"
+    fi
+fi
+
 [ -s "$ARGUS_DST" ] || { echo "argus-k.sh пустой"; exit 1; }
 head -1 "$ARGUS_DST" | grep -q "^#!/bin/sh" || {
     echo "argus-k.sh не похож на shell-скрипт"
@@ -67,19 +85,13 @@ echo ""
 echo "=== Все файлы скачаны ==="
 echo ""
 
-# Инсталлеру нужен TTY для read. Если скрипт запущен через pipe
-# (curl ... | sh), stdin занят и read не работает. Переключаемся
-# на /dev/tty, если он доступен.
 if [ -t 0 ]; then
-    exec "$INSTALLER_DST"
-elif [ -r /dev/tty ] && [ -c /dev/tty ]; then
-    echo "Обнаружен запуск через pipe — переключаю ввод на /dev/tty"
-    exec "$INSTALLER_DST" < /dev/tty
-else
-    echo "Интерактивный ввод недоступен (нет /dev/tty)."
+    echo "Запускаю инсталлер..."
     echo ""
-    echo "Файлы скачаны, инсталлер не запущен."
-    echo "Запустите вручную:"
+    exec "$INSTALLER_DST"
+else
+    echo "Обнаружен запуск через pipe (curl | sh) — stdin недоступен."
+    echo "Инсталлер нужно запустить отдельно, чтобы он мог задавать вопросы:"
     echo ""
     echo "  sh $INSTALLER_DST"
     echo ""

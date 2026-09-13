@@ -25,43 +25,16 @@
 # ============================================================================
 
 # ============================================================================
+# --- Загрузка пользовательских настроек из /opt/etc/argus-k.conf ---
+# Файл создаётся/обновляется install-argus.sh. Обновления кода
+# через bootstrap его не трогают, поэтому настройки сохраняются.
+CONF_FILE="${CONF_FILE:-/opt/etc/argus-k.conf}"
+if [ -f "$CONF_FILE" ]; then
+    . "$CONF_FILE"
+fi
+
 # ======================== НАСТРОЙКИ ПОЛЬЗОВАТЕЛЯ ============================
 # ============================================================================
-
-# --- TELEGRAM ---
-TG_CHAT_IDS="ВСТАВЬТЕ_ВАШ_CHAT_ID"
-TG_TOKEN="ВСТАВЬТЕ_ТОКЕН_ОТ_BOTFATHER"
-
-# --- ПОДПИСКА ---
-SUBSCRIPTION_URL="ВСТАВЬТЕ_ССЫЛКУ_НА_ПОДПИСКУ"
-
-# --- ИДЕНТИФИКАТОРЫ HAPP ---
-HAPP_HWID="ВСТАВЬТЕ_HWID"
-HAPP_VERSION="4.3.0"
-HAPP_UA_DEVICE_ID="ВСТАВЬТЕ_ЧИСЛОВОЙ_ID"
-HAPP_DEVICE_MODEL="Android Device"
-HAPP_DEVICE_NAME="Android Device"
-HAPP_VER_OS="15"
-HAPP_LOCALE="ru-RU"
-
-# --- СЕТЬ ---
-# Заполняется install-argus.sh автоматически.
-# Если правите вручную — проверьте:
-#   ip -4 addr show | grep "inet "
-#   ip route show default
-LOCAL_NET="ВСТАВЬТЕ_ЛОКАЛЬНУЮ_СЕТЬ"     # напр. 192.168.1.0/24
-ROUTER_IP="ВСТАВЬТЕ_IP_РОУТЕРА"         # напр. 192.168.1.1
-WAN_IF="ВСТАВЬТЕ_WAN_ИНТЕРФЕЙС"         # напр. lte_br0, usb0, wwan0, ppp0
-EXCLUDED_IPS=""
-
-# --- SPLIT ROUTING ---
-# yes — если в скачанном из подписки конфиге нет domain-based
-#       direct-правил, Argus-K добавит одно правило со списком
-#       из /opt/etc/argus-k-split-domains.txt. Тогда эти
-#       домены идут напрямую, остальное — через VPN.
-# no  — не вмешиваться в routing вообще.
-# Уже готовые конфиги (со своим split routing) не трогаются.
-SPLIT_ROUTING_ENABLED="yes"
 
 # --- ПОРТЫ XRAY ---
 PROXY_PORT="1181"
@@ -85,19 +58,6 @@ MAX_LOG_SIZE=150000
 ERROR_LOG="/opt/var/log/xray/error.log"
 HOOK_FILE="/opt/etc/ndm/netfilter.d/099-argus-k.sh"
 SPLIT_DOMAINS_FILE="/opt/etc/argus-k-split-domains.txt"
-
-# --- ОБХОДЧИК DPI ---
-Z2K_TYPE="nfqws2"
-Z2K_INIT="/opt/etc/init.d/S51nfqws2"
-
-# --- ТУННЕЛЬ ДЛЯ TELEGRAM ---
-# yes — трафик к Telegram с устройств в сети всегда идёт
-#       через Xray (даже в режиме OPEN).
-# no  — только при WHITELIST, как остальной трафик.
-TG_TUNNEL_ENABLED="yes"
-
-# --- КАНАРЕЙКИ WHITELIST ---
-WHITELIST_CANARIES="1.1.1.1 8.8.8.8 9.9.9.9 208.67.222.222"
 
 # --- ПАРАМЕТРЫ ---
 MAIN_LOOP_SLEEP=3
