@@ -193,22 +193,23 @@ load_current_config() {
 
 # ==================== АВТООПРЕДЕЛЕНИЕ WAN (FALLBACK) ========================
 
+is_lan_iface() {
+    case "$1" in
+        br0|br1|br-lan|br-guest|lo|ezcfg0|bond0) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
 autodetect_wan_if() {
-    local k
-    k=$(autodetect_wan_if_keenetic || true)
-    if [ -n "$k" ]; then
-        echo "$k"
-        return 0
-    fi
     local rt
     rt=$(ip route show default 2>/dev/null | awk '/default/ {print $5; exit}')
-    if [ -n "$rt" ] && [ "$rt" != "lo" ] && [ "$rt" != "br0" ]; then
+    if [ -n "$rt" ] && ! is_lan_iface "$rt"; then
         echo "$rt"
         return 0
     fi
     local iface
     for iface in lte_br0 lte0 lte1 usb0 usb1 usb2 wwan0 wwan1 ppp0 eth3 eth2.2 nwg0 nwg1; do
-        if ip -4 addr show dev "$iface" 2>/dev/null | grep -q "inet "; then
+        if ! is_lan_iface "$iface" && ip -4 addr show dev "$iface" 2>/dev/null | grep -q "inet "; then
             echo "$iface"
             return 0
         fi
