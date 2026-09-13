@@ -12,6 +12,14 @@ is_url() { echo "$1" | grep -qE '^https?://[^ ]+$'; }
 is_tg_token() { echo "$1" | grep -qE '^[0-9]{8,12}:[A-Za-z0-9_-]{30,}$'; }
 is_tg_chat_ids() { echo "$1" | grep -qE '^-?[0-9]+( +-?[0-9]+)*$'; }
 
+# Экранирует \, & и разделитель | перед подстановкой значения
+# в часть замены sed 's|...|...|'. Без этого подписка Happ
+# (URL почти всегда содержит "&" в query-строке) обрежется
+# или исказится: для sed "&" в замене значит "вставить найденное".
+sed_escape_repl() {
+    printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/&/\\&/g' -e 's/|/\\|/g'
+}
+
 HAPP_VERSION_FIXED="4.3.0"
 
 is_lan_iface() {
@@ -58,7 +66,7 @@ detect_wan_gateway() {
 
 detect_lan_settings() {
     local bridge
-    for bridge in br0 br-lan; do
+    for bridge in br0 br1 br-lan; do
         local cidr
         cidr=$(ip -4 addr show dev "$bridge" 2>/dev/null | awk '/inet / {print $2; exit}')
         if [ -n "$cidr" ]; then
@@ -719,21 +727,36 @@ case "$CONFIRM" in
     *) echo "Отменено."; exit 0 ;;
 esac
 
+ESC_TG_TOKEN=$(sed_escape_repl "$TG_TOKEN")
+ESC_TG_CHAT_IDS=$(sed_escape_repl "$TG_CHAT_IDS")
+ESC_SUB_URL=$(sed_escape_repl "$SUB_URL")
+ESC_HWID=$(sed_escape_repl "$HWID")
+ESC_HAPP_VERSION=$(sed_escape_repl "$HAPP_VERSION_FIXED")
+ESC_UA_ID=$(sed_escape_repl "$UA_ID")
+ESC_DEVICE_MODEL=$(sed_escape_repl "$DEVICE_MODEL")
+ESC_Z2K_TYPE=$(sed_escape_repl "$Z2K_TYPE")
+ESC_Z2K_INIT=$(sed_escape_repl "$Z2K_INIT")
+ESC_TG_TUNNEL_ENABLED=$(sed_escape_repl "$TG_TUNNEL_ENABLED")
+ESC_SPLIT_ROUTING_ENABLED=$(sed_escape_repl "$SPLIT_ROUTING_ENABLED")
+ESC_WAN_IF=$(sed_escape_repl "$WAN_IF")
+ESC_LOCAL_NET=$(sed_escape_repl "$LOCAL_NET")
+ESC_ROUTER_IP=$(sed_escape_repl "$ROUTER_IP")
+
 sed -i \
-  -e "s|^TG_TOKEN=.*|TG_TOKEN=\"$TG_TOKEN\"|" \
-  -e "s|^TG_CHAT_IDS=.*|TG_CHAT_IDS=\"$TG_CHAT_IDS\"|" \
-  -e "s|^SUBSCRIPTION_URL=.*|SUBSCRIPTION_URL=\"$SUB_URL\"|" \
-  -e "s|^HAPP_HWID=.*|HAPP_HWID=\"$HWID\"|" \
-  -e "s|^HAPP_VERSION=.*|HAPP_VERSION=\"$HAPP_VERSION_FIXED\"|" \
-  -e "s|^HAPP_UA_DEVICE_ID=.*|HAPP_UA_DEVICE_ID=\"$UA_ID\"|" \
-  -e "s|^HAPP_DEVICE_MODEL=.*|HAPP_DEVICE_MODEL=\"$DEVICE_MODEL\"|" \
-  -e "s|^Z2K_TYPE=.*|Z2K_TYPE=\"$Z2K_TYPE\"|" \
-  -e "s|^Z2K_INIT=.*|Z2K_INIT=\"$Z2K_INIT\"|" \
-  -e "s|^TG_TUNNEL_ENABLED=.*|TG_TUNNEL_ENABLED=\"$TG_TUNNEL_ENABLED\"|" \
-  -e "s|^SPLIT_ROUTING_ENABLED=.*|SPLIT_ROUTING_ENABLED=\"$SPLIT_ROUTING_ENABLED\"|" \
-  -e "s|^WAN_IF=.*|WAN_IF=\"$WAN_IF\"|" \
-  -e "s|^LOCAL_NET=.*|LOCAL_NET=\"$LOCAL_NET\"|" \
-  -e "s|^ROUTER_IP=.*|ROUTER_IP=\"$ROUTER_IP\"|" \
+  -e "s|^TG_TOKEN=.*|TG_TOKEN=\"$ESC_TG_TOKEN\"|" \
+  -e "s|^TG_CHAT_IDS=.*|TG_CHAT_IDS=\"$ESC_TG_CHAT_IDS\"|" \
+  -e "s|^SUBSCRIPTION_URL=.*|SUBSCRIPTION_URL=\"$ESC_SUB_URL\"|" \
+  -e "s|^HAPP_HWID=.*|HAPP_HWID=\"$ESC_HWID\"|" \
+  -e "s|^HAPP_VERSION=.*|HAPP_VERSION=\"$ESC_HAPP_VERSION\"|" \
+  -e "s|^HAPP_UA_DEVICE_ID=.*|HAPP_UA_DEVICE_ID=\"$ESC_UA_ID\"|" \
+  -e "s|^HAPP_DEVICE_MODEL=.*|HAPP_DEVICE_MODEL=\"$ESC_DEVICE_MODEL\"|" \
+  -e "s|^Z2K_TYPE=.*|Z2K_TYPE=\"$ESC_Z2K_TYPE\"|" \
+  -e "s|^Z2K_INIT=.*|Z2K_INIT=\"$ESC_Z2K_INIT\"|" \
+  -e "s|^TG_TUNNEL_ENABLED=.*|TG_TUNNEL_ENABLED=\"$ESC_TG_TUNNEL_ENABLED\"|" \
+  -e "s|^SPLIT_ROUTING_ENABLED=.*|SPLIT_ROUTING_ENABLED=\"$ESC_SPLIT_ROUTING_ENABLED\"|" \
+  -e "s|^WAN_IF=.*|WAN_IF=\"$ESC_WAN_IF\"|" \
+  -e "s|^LOCAL_NET=.*|LOCAL_NET=\"$ESC_LOCAL_NET\"|" \
+  -e "s|^ROUTER_IP=.*|ROUTER_IP=\"$ESC_ROUTER_IP\"|" \
   "$FILE"
 chmod +x "$FILE"
 

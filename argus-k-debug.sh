@@ -5,7 +5,7 @@
 #   sh argus-k-debug.sh --tg         # отправить отчёт в Telegram
 #   sh argus-k-debug.sh > /tmp/d.txt # сохранить в файл
 
-XKEEN_FILE="${XKEEN_FILE:-/opt/etc/argus-k.sh}"
+ARGUS_FILE="${ARGUS_FILE:-/opt/etc/argus-k.sh}"
 INIT_FILE="${INIT_FILE:-/opt/etc/init.d/S99argus}"
 SPLIT_FILE="${SPLIT_FILE:-/opt/etc/argus-k-split-domains.txt}"
 LOG_FILE="/tmp/argus-k.log"
@@ -48,11 +48,11 @@ for cmd in jq curl ipset xray; do
 done
 
 hdr "3. Основной скрипт"
-if [ -f "$XKEEN_FILE" ]; then
-    if [ -x "$XKEEN_FILE" ]; then ok "исполняемый"; else err "не исполняемый"; ERRORS=$((ERRORS+1)); fi
-    if sh -n "$XKEEN_FILE" 2>/dev/null; then ok "синтаксис OK"; else err "синтаксис ERROR"; ERRORS=$((ERRORS+1)); fi
+if [ -f "$ARGUS_FILE" ]; then
+    if [ -x "$ARGUS_FILE" ]; then ok "исполняемый"; else err "не исполняемый"; ERRORS=$((ERRORS+1)); fi
+    if sh -n "$ARGUS_FILE" 2>/dev/null; then ok "синтаксис OK"; else err "синтаксис ERROR"; ERRORS=$((ERRORS+1)); fi
     for v in SUBSCRIPTION_URL TG_CHAT_IDS TG_TOKEN HAPP_HWID HAPP_UA_DEVICE_ID WAN_IF LOCAL_NET ROUTER_IP; do
-        val=$(grep "^${v}=" "$XKEEN_FILE" | head -1 | cut -d'=' -f2- | tr -d '"')
+        val=$(grep "^${v}=" "$ARGUS_FILE" | head -1 | cut -d'=' -f2- | tr -d '"')
         if [ -z "$val" ] || echo "$val" | grep -q "ВСТАВЬТЕ_"; then
             err "$v не заполнено"; ERRORS=$((ERRORS+1))
         else
@@ -60,7 +60,7 @@ if [ -f "$XKEEN_FILE" ]; then
         fi
     done
 else
-    err "не найден: $XKEEN_FILE"; ERRORS=$((ERRORS+1))
+    err "не найден: $ARGUS_FILE"; ERRORS=$((ERRORS+1))
 fi
 
 hdr "4. Конфиги Xray"
@@ -82,10 +82,10 @@ else
 fi
 
 hdr "6. Сеть: WAN, LAN, whitelist"
-wan_if=$(grep "^WAN_IF=" "$XKEEN_FILE" 2>/dev/null | cut -d'=' -f2 | tr -d '"')
+wan_if=$(grep "^WAN_IF=" "$ARGUS_FILE" 2>/dev/null | cut -d'=' -f2 | tr -d '"')
 
 if [ -z "$wan_if" ] || echo "$wan_if" | grep -q "ВСТАВЬТЕ_"; then
-    err "WAN_IF не задан в $XKEEN_FILE"
+    err "WAN_IF не задан в $ARGUS_FILE"
     ERRORS=$((ERRORS+1))
 elif ! ip link show dev "$wan_if" >/dev/null 2>&1; then
     err "WAN_IF='$wan_if' не существует в системе"
@@ -103,8 +103,8 @@ else
     fi
 fi
 
-router_ip_cfg=$(grep "^ROUTER_IP=" "$XKEEN_FILE" 2>/dev/null | cut -d'=' -f2 | tr -d '"')
-local_net_cfg=$(grep "^LOCAL_NET=" "$XKEEN_FILE" 2>/dev/null | cut -d'=' -f2 | tr -d '"')
+router_ip_cfg=$(grep "^ROUTER_IP=" "$ARGUS_FILE" 2>/dev/null | cut -d'=' -f2 | tr -d '"')
+local_net_cfg=$(grep "^LOCAL_NET=" "$ARGUS_FILE" 2>/dev/null | cut -d'=' -f2 | tr -d '"')
 if [ -n "$router_ip_cfg" ] && ! echo "$router_ip_cfg" | grep -q "ВСТАВЬТЕ_"; then
     if ip -4 addr show 2>/dev/null | grep -q " $router_ip_cfg/"; then
         ok "ROUTER_IP=$router_ip_cfg присутствует на роутере"
@@ -124,7 +124,7 @@ else
 fi
 
 if [ -n "$wan_if" ] && ip link show dev "$wan_if" >/dev/null 2>&1; then
-    canaries=$(grep "^WHITELIST_CANARIES=" "$XKEEN_FILE" 2>/dev/null | cut -d'=' -f2- | tr -d '"')
+    canaries=$(grep "^WHITELIST_CANARIES=" "$ARGUS_FILE" 2>/dev/null | cut -d'=' -f2- | tr -d '"')
     [ -z "$canaries" ] && canaries="1.1.1.1 8.8.8.8 9.9.9.9 208.67.222.222"
     alive=0
     for ip in $canaries; do
@@ -146,7 +146,7 @@ iptables -t nat -L XRAY_TG_PREROUTING -n >/dev/null 2>&1 && ok "XRAY_TG_PREROUTI
 iptables -t nat -C PREROUTING -j XRAY_PREROUTING 2>/dev/null && ok "PREROUTING→XRAY активен" || info "PREROUTING→XRAY не подключён"
 
 hdr "8. Split routing"
-split_flag=$(grep "^SPLIT_ROUTING_ENABLED=" "$XKEEN_FILE" 2>/dev/null | cut -d'=' -f2 | tr -d '"')
+split_flag=$(grep "^SPLIT_ROUTING_ENABLED=" "$ARGUS_FILE" 2>/dev/null | cut -d'=' -f2 | tr -d '"')
 if [ "$split_flag" = "yes" ]; then
     ok "SPLIT_ROUTING_ENABLED = yes"
     if [ -f "$SPLIT_FILE" ]; then
@@ -172,7 +172,7 @@ else
 fi
 
 hdr "9. Telegram"
-tg_token=$(grep "^TG_TOKEN=" "$XKEEN_FILE" 2>/dev/null | head -1 | cut -d'=' -f2- | tr -d '"')
+tg_token=$(grep "^TG_TOKEN=" "$ARGUS_FILE" 2>/dev/null | head -1 | cut -d'=' -f2- | tr -d '"')
 if [ -z "$tg_token" ]; then
     info "Telegram не настроен"
 else
@@ -185,7 +185,7 @@ else
 fi
 
 hdr "10. Конфликты TG-туннеля"
-tg_flag=$(grep "^TG_TUNNEL_ENABLED=" "$XKEEN_FILE" 2>/dev/null | cut -d'=' -f2 | tr -d '"')
+tg_flag=$(grep "^TG_TUNNEL_ENABLED=" "$ARGUS_FILE" 2>/dev/null | cut -d'=' -f2 | tr -d '"')
 foreign=""
 
 if command -v ipset >/dev/null 2>&1; then
@@ -249,8 +249,8 @@ echo "============================================================"
 echo ""
 
 if [ "$1" = "--tg" ]; then
-    tg_token=$(grep "^TG_TOKEN=" "$XKEEN_FILE" 2>/dev/null | head -1 | cut -d'=' -f2- | tr -d '"')
-    tg_chats=$(grep "^TG_CHAT_IDS=" "$XKEEN_FILE" 2>/dev/null | head -1 | cut -d'=' -f2- | tr -d '"')
+    tg_token=$(grep "^TG_TOKEN=" "$ARGUS_FILE" 2>/dev/null | head -1 | cut -d'=' -f2- | tr -d '"')
+    tg_chats=$(grep "^TG_CHAT_IDS=" "$ARGUS_FILE" 2>/dev/null | head -1 | cut -d'=' -f2- | tr -d '"')
     if [ -z "$tg_token" ] || [ -z "$tg_chats" ]; then
         echo "⚠️  Telegram не настроен, отправка пропущена."
         exit 0

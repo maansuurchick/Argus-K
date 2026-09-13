@@ -789,6 +789,7 @@ tg_parse_updates() {
 
 tg_poller() {
     local offset=$(cat "$TG_OFFSET_FILE" 2>/dev/null || echo 0)
+    local batch_seq=0
     log "Telegram poller: стартовый offset=$offset"
     while true; do
         local resp=$(tg_poll_curl "$offset")
@@ -798,10 +799,14 @@ tg_poller() {
         if [ -n "$max_id" ]; then
             offset=$((max_id + 1)); echo "$offset" > "$TG_OFFSET_FILE"
         fi
-        local batch_tmp="$STATE_DIR/tg_batch.$$.$(date +%s).tmp"
+        # batch_seq в имени файла — на случай, если два пакета
+        # сообщений прилетят в одну и ту же секунду (иначе второй
+        # файл перезапишет первый и команды потеряются).
+        batch_seq=$((batch_seq + 1))
+        local batch_tmp="$STATE_DIR/tg_batch.$$.$(date +%s).${batch_seq}.tmp"
         echo "$resp" | tg_parse_updates > "$batch_tmp"
         if [ -s "$batch_tmp" ]; then
-            mv "$batch_tmp" "$TG_QUEUE_DIR/msg.$(date +%s).$$"
+            mv "$batch_tmp" "$TG_QUEUE_DIR/msg.$(date +%s).$$.${batch_seq}"
         else
             rm -f "$batch_tmp"
         fi
