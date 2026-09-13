@@ -12,10 +12,6 @@ is_url() { echo "$1" | grep -qE '^https?://[^ ]+$'; }
 is_tg_token() { echo "$1" | grep -qE '^[0-9]{8,12}:[A-Za-z0-9_-]{30,}$'; }
 is_tg_chat_ids() { echo "$1" | grep -qE '^-?[0-9]+( +-?[0-9]+)*$'; }
 
-# Экранирует \, & и разделитель | перед подстановкой значения
-# в часть замены sed 's|...|...|'. Без этого подписка Happ
-# (URL почти всегда содержит "&" в query-строке) обрежется
-# или исказится: для sed "&" в замене значит "вставить найденное".
 sed_escape_repl() {
     printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/&/\\&/g' -e 's/|/\\|/g'
 }
@@ -87,27 +83,18 @@ detect_lan_settings() {
 
 detect_existing_tg_tunnel() {
     local found=""
-
     if command -v ipset >/dev/null 2>&1; then
         local sets
         sets=$(ipset list -n 2>/dev/null | grep -iE 'telegram|^tg|_tg_')
-        if [ -n "$sets" ]; then
-            found="$found
+        [ -n "$sets" ] && found="$found
     ipset: $(echo "$sets" | tr '\n' ' ')"
-        fi
     fi
-
     if command -v iptables >/dev/null 2>&1; then
         local hit
-        hit=$(iptables -t nat -S 2>/dev/null \
-            | grep -iE 'telegram|TG_|_TG|XRAY_TG' \
-            | grep -viE 'XRAY_TG_PREROUTING|XRAY_TG_')
-        if [ -n "$hit" ]; then
-            found="$found
+        hit=$(iptables -t nat -S 2>/dev/null | grep -iE 'telegram|TG_|_TG|XRAY_TG' | grep -viE 'XRAY_TG')
+        [ -n "$hit" ] && found="$found
     iptables: $(echo "$hit" | head -1 | cut -c1-90)"
-        fi
     fi
-
     local pat proc
     for pat in 'z2k' 'z4r' 'sing-box' 'tg-tunnel' 'telegram-proxy' 'mtg' 'mtproto'; do
         proc=$(ps 2>/dev/null | grep -v grep | grep -iE "$pat" | head -1)
@@ -117,7 +104,6 @@ detect_existing_tg_tunnel() {
             break
         fi
     done
-
     [ -n "$found" ] && { echo "$found"; return 0; }
     return 1
 }
@@ -129,7 +115,7 @@ echo "============================================================"
 echo ""
 
 if ! mount 2>/dev/null | grep -q " /opt "; then
-    echo "❌ Каталог /opt не смонтирован — Entware не установлен."
+    echo "Каталог /opt не смонтирован."
     exit 1
 fi
 
@@ -137,39 +123,16 @@ for pkg_cmd in "jq:jq" "curl:curl" "ipset:ipset"; do
     pkg="${pkg_cmd%%:*}"
     cmd="${pkg_cmd##*:}"
     if ! command -v "$cmd" >/dev/null 2>&1; then
-        echo "⬇️  Устанавливаю $pkg..."
         opkg update >/dev/null 2>&1 || true
-        opkg install "$pkg" || echo "⚠️ $pkg не установлен"
+        opkg install "$pkg" >/dev/null 2>&1 || true
     fi
-    if command -v "$cmd" >/dev/null 2>&1; then
-        echo "✅ $cmd"
-    else
-        echo "❌ $cmd"
-    fi
+    command -v "$cmd" >/dev/null 2>&1 && echo "OK $cmd" || echo "MISS $cmd"
 done
 
 if ! command -v xray >/dev/null 2>&1 && [ ! -x /opt/sbin/xray ]; then
-    echo "⬇️  Устанавливаю Xray..."
-    opkg install xray || {
-        ARCH=$(uname -m)
-        case "$ARCH" in
-            aarch64)      XRAY_ARCH="arm64-v8a" ;;
-            armv7l|armv7) XRAY_ARCH="arm32-v7a" ;;
-            mips)         XRAY_ARCH="mips32" ;;
-            mipsel)       XRAY_ARCH="mips32le" ;;
-            *) echo "❌ Неизвестная архитектура"; exit 1 ;;
-        esac
-        TMPDIR=$(mktemp -d)
-        URL="https://github.com/XTLS/Xray-core/releases/latest/download/Xray-linux-${XRAY_ARCH}.zip"
-        curl -fsSL -o "$TMPDIR/xray.zip" "$URL" || exit 1
-        command -v unzip >/dev/null 2>&1 || opkg install unzip >/dev/null 2>&1
-        unzip -o "$TMPDIR/xray.zip" -d "$TMPDIR" >/dev/null
-        mv "$TMPDIR/xray" /opt/sbin/xray
-        chmod +x /opt/sbin/xray
-        rm -rf "$TMPDIR"
-    }
+    opkg install xray >/dev/null 2>&1 || true
 fi
-echo "✅ Xray"
+command -v xray >/dev/null 2>&1 || [ -x /opt/sbin/xray ] && echo "OK Xray"
 
 mkdir -p /opt/etc/xray/configs /opt/var/log/xray
 echo ""
@@ -181,13 +144,12 @@ cat << 'HELP'
 ============================================================
    ШАГ 0.5. ОПРЕДЕЛЕНИЕ СЕТЕВЫХ ПАРАМЕТРОВ
 ============================================================
-Скрипту нужны три параметра сети:
+Скрипт определит:
   - WAN-интерфейс (через который роутер смотрит в интернет);
   - адрес локальной сети (LAN);
   - IP роутера в локальной сети.
 
-Определяю автоматически. Если что-то определится неверно —
-можно переопределить вручную.
+Если определится неверно — можно переопределить вручную.
 ============================================================
 HELP
 echo ""
@@ -205,66 +167,36 @@ for iface in $WAN_CANDIDATES; do
     printf "  %2d) %-14s %s%s\n" "$i" "$iface" "$addr" "$marker"
 done
 echo ""
-printf "WAN-интерфейс [%s]: " "${DETECTED_WAN:-не определён}"
+printf "WAN-интерфейс [%s] (имя или номер из списка): " "${DETECTED_WAN:-не определён}"
 read INPUT_WAN
-if [ -n "$INPUT_WAN" ]; then
-    WAN_IF="$INPUT_WAN"
-elif [ -n "$DETECTED_WAN" ]; then
-    WAN_IF="$DETECTED_WAN"
-else
-    echo "❌ WAN-интерфейс не определён и не указан."
-    echo "   Укажите вручную в /opt/etc/argus-k.sh (переменная WAN_IF)."
-    exit 1
-fi
 
-if ! ip link show dev "$WAN_IF" >/dev/null 2>&1; then
-    echo "⚠️  Интерфейс '$WAN_IF' не найден в системе."
-    printf "   Продолжить? (y/N): "
-    read OK
-    case "$OK" in y|Y|yes|YES) ;; *) exit 1 ;; esac
+if [ -z "$INPUT_WAN" ]; then
+    if [ -n "$DETECTED_WAN" ]; then
+        WAN_IF="$DETECTED_WAN"
+    else
+        echo "WAN-интерфейс не определён и не указан."
+        exit 1
+    fi
+elif echo "$INPUT_WAN" | grep -qE '^[0-9]+$'; then
+    PICKED=$(echo "$WAN_CANDIDATES" | sed -n "${INPUT_WAN}p")
+    if [ -z "$PICKED" ]; then
+        echo "Номера $INPUT_WAN нет в списке."
+        exit 1
+    fi
+    WAN_IF="$PICKED"
+    echo "  по номеру $INPUT_WAN -> $WAN_IF"
+else
+    WAN_IF="$INPUT_WAN"
 fi
-echo "✅ WAN_IF = $WAN_IF"
-echo ""
 
 WAN_IF_IP=$(detect_wan_ip "$WAN_IF" || true)
 WAN_IF_GW=$(detect_wan_gateway "$WAN_IF" || true)
 
 if [ -n "$WAN_IF_IP" ]; then
-    echo "✅ WAN_IF имеет IPv4: $WAN_IF_IP"
-    [ -n "$WAN_IF_GW" ] && echo "   Шлюз оператора: $WAN_IF_GW"
+    echo "WAN_IF = $WAN_IF ($WAN_IF_IP)"
+    [ -n "$WAN_IF_GW" ] && echo "  шлюз оператора: $WAN_IF_GW"
 else
-    echo "⚠️  На интерфейсе '$WAN_IF' нет IPv4."
-    echo "   Возможные причины:"
-    echo "     - модем не подключён / нет сессии LTE;"
-    echo "     - выбран не тот интерфейс;"
-    echo "     - IP появится позже (KeeneticOS поднимает ndm)."
-    printf "   Продолжить всё равно? (y/N): "
-    read OK_WAN_IP
-    case "$OK_WAN_IP" in
-        y|Y|yes|YES) ;;
-        *)
-            echo "Перезапустите установку, когда LTE-сессия активна."
-            exit 1
-            ;;
-    esac
-fi
-
-if [ -n "$WAN_IF_IP" ]; then
-    echo ""
-    echo "Проверяю связь через $WAN_IF..."
-    if ping -I "$WAN_IF" -c 2 -W 3 77.88.8.8 >/dev/null 2>&1; then
-        echo "✅ ping 77.88.8.8 через $WAN_IF — OK"
-    elif ping -I "$WAN_IF" -c 2 -W 3 1.1.1.1 >/dev/null 2>&1; then
-        echo "✅ ping 1.1.1.1 через $WAN_IF — OK (Yandex DNS недоступен)"
-    else
-        echo "⚠️  ping через $WAN_IF не проходит. Возможно:"
-        echo "     - оператор блокирует ICMP;"
-        echo "     - неверный интерфейс;"
-        echo "     - нет связи с модемом."
-        printf "   Продолжить? (y/N): "
-        read OK_PING
-        case "$OK_PING" in y|Y|yes|YES) ;; *) exit 1 ;; esac
-    fi
+    echo "WAN_IF = $WAN_IF (IPv4 сейчас не виден — норма для некоторых LTE-режимов)"
 fi
 echo ""
 
@@ -273,16 +205,16 @@ DETECTED_LAN_NET="${DETECTED_LAN%%|*}"
 DETECTED_LAN_IP="${DETECTED_LAN##*|}"
 
 if [ -n "$DETECTED_LAN_NET" ] && [ "$DETECTED_LAN" != "$DETECTED_LAN_NET" ]; then
-    echo "Локальная сеть определена: $DETECTED_LAN_NET"
+    echo "Локальная сеть: $DETECTED_LAN_NET"
     echo "IP роутера в LAN: $DETECTED_LAN_IP"
     printf "Использовать эти значения? (Y/n): "
     read OK_LAN
     case "$OK_LAN" in
         n|N|no|NO)
-            printf "  Локальная сеть [%s]: " "$DETECTED_LAN_NET"
+            printf "Локальная сеть [%s]: " "$DETECTED_LAN_NET"
             read INPUT_LAN
             LOCAL_NET="${INPUT_LAN:-$DETECTED_LAN_NET}"
-            printf "  IP роутера [%s]: " "$DETECTED_LAN_IP"
+            printf "IP роутера [%s]: " "$DETECTED_LAN_IP"
             read INPUT_IP
             ROUTER_IP="${INPUT_IP:-$DETECTED_LAN_IP}"
             ;;
@@ -292,18 +224,14 @@ if [ -n "$DETECTED_LAN_NET" ] && [ "$DETECTED_LAN" != "$DETECTED_LAN_NET" ]; the
             ;;
     esac
 else
-    echo "⚠️  Не удалось определить LAN автоматически (br0 не найден)."
-    printf "  Локальная сеть (напр. 192.168.1.0/24): "
+    echo "Не удалось определить LAN автоматически (br0/br1 не найден)."
+    printf "Локальная сеть (напр. 192.168.1.0/24): "
     read LOCAL_NET
-    printf "  IP роутера в LAN (напр. 192.168.1.1): "
+    printf "IP роутера в LAN (напр. 192.168.1.1): "
     read ROUTER_IP
-    if ! is_filled "$LOCAL_NET" || ! is_filled "$ROUTER_IP"; then
-        echo "❌ Пустые значения недопустимы."
-        exit 1
-    fi
 fi
-echo "✅ LOCAL_NET = $LOCAL_NET"
-echo "✅ ROUTER_IP = $ROUTER_IP"
+echo "LOCAL_NET = $LOCAL_NET"
+echo "ROUTER_IP = $ROUTER_IP"
 echo ""
 printf "Нажмите Enter для продолжения..."
 read DUMMY
@@ -327,12 +255,12 @@ while true; do
     printf "Ссылка на подписку: "
     read SUB_URL
     if ! is_filled "$SUB_URL"; then
-        echo "❌ Пусто. Попробуйте снова."
+        echo "Пусто. Попробуйте снова."
         continue
     fi
     if ! is_url "$SUB_URL"; then
-        echo "⚠️  Это не похоже на URL (должно начинаться с http:// или https://)."
-        printf "   Всё равно использовать? (y/N): "
+        echo "Это не похоже на URL (должно начинаться с http:// или https://)."
+        printf "Всё равно использовать? (y/N): "
         read OK
         case "$OK" in
             y|Y|yes|YES) break ;;
@@ -360,24 +288,78 @@ printf "Нажмите Enter, чтобы продолжить..."
 read DUMMY
 echo ""
 
+cat << 'HELP'
+------------------------------------------------------------
+2.1 HWID (идентификатор устройства)
+------------------------------------------------------------
+Строка из 16 символов (hex).
+Где посмотреть:
+  1. Личный кабинет VPN-провайдера -> «Устройства»
+     (ищите «HWID» или «Device ID»).
+  2. Приложение Happ -> Настройки -> Информация.
+  3. Поддержка провайдера.
+Если не нашли — нажмите Enter, значение сгенерируется.
+ВНИМАНИЕ: случайный HWID может занять новый слот в подписке!
+------------------------------------------------------------
+HELP
 printf "HWID (Enter — сгенерировать): "
 read HWID
 if [ -z "$HWID" ]; then
     HWID=$(cat /proc/sys/kernel/random/uuid 2>/dev/null | tr -d '-')
     echo "  сгенерирован: $HWID"
-    echo "  Может занять новый слот в подписке"
+    echo "  ВНИМАНИЕ: может занять новый слот в подписке"
 fi
 echo ""
 
-printf "UA Device ID (Enter — сгенерировать): "
+cat << 'HELP'
+------------------------------------------------------------
+2.2 UA DEVICE ID
+------------------------------------------------------------
+Числовой ID устройства в строке User-Agent приложения Happ.
+Полная строка выглядит так:
+  Happ/4.3.0/Android/17877369741321921609
+                       ^^^^^^^^^^^^^^^^^^ — это UA Device ID
+
+Можно вставить всю строку целиком — Argus-K сам выделит
+число после последнего слеша.
+
+Где посмотреть:
+  1. Личный кабинет провайдера -> «Устройства».
+  2. Через mitmproxy — перехватить запрос Happ к подписке.
+  3. Поддержка провайдера.
+Если не нашли — нажмите Enter, значение сгенерируется.
+ВНИМАНИЕ: случайный ID может занять новый слот в подписке!
+------------------------------------------------------------
+HELP
+printf "UA Device ID или полная строка User-Agent: "
 read UA_ID
 if [ -z "$UA_ID" ]; then
     UA_ID=$(od -An -tu8 -N8 /dev/urandom 2>/dev/null | tr -d ' ')
     echo "  сгенерирован: $UA_ID"
-    echo "  Может занять новый слот в подписке"
+    echo "  ВНИМАНИЕ: может занять новый слот в подписке"
+elif echo "$UA_ID" | grep -q '/'; then
+    PARSED=$(printf '%s' "$UA_ID" | sed 's|.*/||')
+    if echo "$PARSED" | grep -qE '^[0-9]+$'; then
+        echo "  распознан UA Device ID: $PARSED"
+        UA_ID="$PARSED"
+    else
+        echo "  не удалось выделить число после слеша."
+        echo "  использую строку как есть (может не сработать)."
+    fi
 fi
 echo ""
 
+cat << 'HELP'
+------------------------------------------------------------
+2.3 МОДЕЛЬ УСТРОЙСТВА
+------------------------------------------------------------
+Модель вашего смартфона — провайдер может её проверять.
+Где посмотреть:
+  1. Телефон -> Настройки -> О телефоне -> Модель.
+  2. Личный кабинет провайдера -> «Устройства».
+Если не знаете — нажмите Enter, будет «Android Device».
+------------------------------------------------------------
+HELP
 printf "Модель устройства (Enter — Android Device): "
 read DEVICE_MODEL
 [ -z "$DEVICE_MODEL" ] && DEVICE_MODEL="Android Device"
@@ -395,7 +377,7 @@ HTTP_CODE=$(curl -s -L --compressed -o "$TMP_SUB" -w "%{http_code}" \
     --connect-timeout 15 --max-time 60 "$SUB_URL" 2>/dev/null)
 CURL_RC=$?
 
-echo "  HTTP код: $HTTP_CODE (curl rc=$CURL_RC)"
+echo "HTTP: $HTTP_CODE (curl rc=$CURL_RC)"
 SUB_OK=0
 SUB_MSG=""
 
@@ -408,19 +390,18 @@ elif [ ! -s "$TMP_SUB" ]; then
 else
     SIZE=$(wc -c < "$TMP_SUB")
     FIRST=$(head -c 1 "$TMP_SUB" | tr -d '[:space:]')
-    echo "  Размер: $SIZE байт, первый символ: '$FIRST'"
+    echo "Размер: $SIZE байт, первый символ: '$FIRST'"
     echo ""
     if [ "$FIRST" = "[" ] || [ "$FIRST" = "{" ]; then
         CNT=$(jq 'length' "$TMP_SUB" 2>/dev/null)
         if [ -n "$CNT" ] && [ "$CNT" -gt 0 ] 2>/dev/null; then
-            echo "  Найдено конфигов: $CNT"
-            echo "  Первые 5 названий:"
+            echo "Найдено конфигов: $CNT"
+            echo "Первые 5:"
             jq -r '.[0:5][] | "    - " + (.remarks // "(без названия)")' "$TMP_SUB" 2>/dev/null
             echo ""
             FIRST_UUID=$(jq -r '.[0].outbounds[]? | select(.protocol=="vless" or .protocol=="vmess") | .settings.vnext[0].users[0].id // empty' "$TMP_SUB" 2>/dev/null)
             if [ "$FIRST_UUID" = "00000000-0000-0000-0000-000000000000" ] || [ -z "$FIRST_UUID" ]; then
-                SUB_MSG="Похоже на ЗАГЛУШКУ.
-   Проверьте HWID и UA Device ID."
+                SUB_MSG="Похоже на ЗАГЛУШКУ. Проверьте HWID и UA Device ID."
             else
                 SUB_OK=1
                 SUB_MSG="Подписка рабочая: $CNT конфигов."
@@ -466,19 +447,17 @@ Argus-K умеет пускать трафик к Telegram через Xray вс�
 HELP
 echo ""
 
-echo "Проверяю систему на признаки существующего туннеля..."
+echo "Проверяю систему на существующий TG-туннель..."
 DETECTED_TG=$(detect_existing_tg_tunnel || true)
 DETECT_FOUND=0
 if [ -n "$DETECTED_TG" ]; then
     DETECT_FOUND=1
-    echo ""
-    echo "Найдены признаки существующего туннеля для Telegram:"
+    echo "Найдены признаки:"
     echo "$DETECTED_TG"
-    echo ""
 else
-    echo "   Признаков существующего туннеля не найдено."
-    echo ""
+    echo "Признаков не найдено."
 fi
+echo ""
 
 HAS_TG_TUNNEL=""
 while true; do
@@ -486,56 +465,29 @@ while true; do
     read HAS_TG_TUNNEL
     case "$HAS_TG_TUNNEL" in
         y|Y|yes|YES|n|N|no|NO) break ;;
-        *) echo "Ответьте 'y' или 'n'." ;;
+        *) echo "Ответьте y или n." ;;
     esac
 done
 
 case "$HAS_TG_TUNNEL" in
     y|Y|yes|YES)
         TG_TUNNEL_ENABLED="no"
-        echo ""
-        echo "Понятно. Argus-K не будет вмешиваться в Telegram."
-        if [ "$DETECT_FOUND" -eq 0 ]; then
-            echo ""
-            echo "  Автопоиск ничего не нашёл, но вы сказали, что"
-            echo "  туннель есть. Если это ошибка — смените"
-            echo "  TG_TUNNEL_ENABLED на yes в /opt/etc/argus-k.sh."
-        fi
+        echo "Argus-K не будет трогать Telegram."
         ;;
     n|N|no|NO)
         if [ "$DETECT_FOUND" -eq 1 ]; then
-            echo ""
-            echo "Внимание: вы ответили, что своего туннеля нет,"
-            echo "но автопоиск нашёл признаки существующего."
-            echo ""
-            printf "   Всё равно настроить туннель через Xray? (y/N): "
+            printf "Настроить туннель через Xray всё равно? (y/N): "
             read CONFLICT_OK
             case "$CONFLICT_OK" in
-                y|Y|yes|YES)
-                    TG_TUNNEL_ENABLED="yes"
-                    echo "Туннель для Telegram будет создан через Xray."
-                    ;;
-                *)
-                    TG_TUNNEL_ENABLED="no"
-                    echo "Ок, туннель для Telegram настраивать не будем."
-                    ;;
+                y|Y|yes|YES) TG_TUNNEL_ENABLED="yes" ;;
+                *) TG_TUNNEL_ENABLED="no" ;;
             esac
         else
-            echo ""
-            echo "Тогда можно настроить прозрачный туннель через Xray."
-            echo "Xray у Argus-K запущен в фоне постоянно (для бота),"
-            echo "так что туннель не создаёт дополнительной нагрузки."
-            printf "Настроить туннель для Telegram через Xray? (Y/n): "
+            printf "Настроить туннель через Xray? (Y/n): "
             read WANT_TG_TUNNEL
             case "$WANT_TG_TUNNEL" in
-                n|N|no|NO)
-                    TG_TUNNEL_ENABLED="no"
-                    echo "Ок, туннель для Telegram настраивать не будем."
-                    ;;
-                *)
-                    TG_TUNNEL_ENABLED="yes"
-                    echo "Туннель для Telegram будет создан."
-                    ;;
+                n|N|no|NO) TG_TUNNEL_ENABLED="no" ;;
+                *) TG_TUNNEL_ENABLED="yes" ;;
             esac
         fi
         ;;
@@ -547,17 +499,22 @@ cat << 'HELP'
 ============================================================
    ШАГ 2.6. SPLIT ROUTING ДЛЯ RU-ДОМЕНОВ
 ============================================================
-Argus-K умеет добавлять в скачанные из подписки конфиги
+Argus-K может добавить в скачанные из подписки конфиги
 одно правило: домены из списка
 /opt/etc/argus-k-split-domains.txt идут напрямую, а не
 через VPN.
 
+Зачем:
+  - российские сервисы (Яндекс, VK, Ozon, госуслуги,
+    банки) не любят, когда заходят с VPN-IP;
+  - экономит трафик;
+  - снижает нагрузку на туннель.
+
 Если у вашей подписки УЖЕ есть свои domain-based
-direct-правила (у дорогих подписок бывает) — Argus-K
-их не тронет.
+direct-правила — Argus-K их не тронет.
 ============================================================
 HELP
-printf "Добавлять правило RU-домены напрямую? (Y/n): "
+printf "Добавлять RU-домены напрямую? (Y/n): "
 read WANT_SPLIT
 case "$WANT_SPLIT" in
     n|N|no|NO)
@@ -568,6 +525,7 @@ case "$WANT_SPLIT" in
         SPLIT_ROUTING_ENABLED="yes"
         echo "Split routing будет добавлен в конфиги без своих direct-правил."
         echo "Список: /opt/etc/argus-k-split-domains.txt"
+        echo "Дополнять можно вручную, изменения подхватятся при рестарте."
         ;;
 esac
 echo ""
@@ -596,9 +554,20 @@ TG_CHAT_IDS=""
 case "$WANT_TG" in
     y|Y|yes|YES)
         echo ""
+        cat << 'HELP'
+------------------------------------------------------------
+3.1 ТОКЕН БОТА
+------------------------------------------------------------
+Как получить:
+  1. Откройте Telegram (через VPN, если заблокирован).
+  2. Найдите @BotFather.
+  3. Отправьте /newbot и следуйте инструкциям бота.
+  4. Придумайте имя и username (должен оканчиваться на "bot").
+  5. BotFather пришлёт токен вида:
+       1234567890:ABCdefGHIjklMNOpqrSTUvwxYZ-1234567
+------------------------------------------------------------
+HELP
         while true; do
-            echo "--- 3.1 ТОКЕН БОТА ---"
-            echo "Получите у @BotFather: /newbot"
             printf "Токен: "
             read TG_TOKEN
             if ! is_filled "$TG_TOKEN"; then
@@ -613,9 +582,24 @@ case "$WANT_TG" in
             case "$OK" in y|Y|yes|YES) break ;; *) continue ;; esac
         done
         echo ""
+        cat << 'HELP'
+------------------------------------------------------------
+3.2 CHAT ID
+------------------------------------------------------------
+Числовой ID пользователя (НЕ логин @username).
+Как узнать:
+  1. Найдите @userinfobot в Telegram.
+  2. Отправьте ему любое сообщение.
+  3. Он ответит вашим ID (например: 123456789).
+
+Можно несколько ID через пробел.
+
+ВАЖНО: каждый пользователь сначала должен написать
+вашему боту /start, иначе Telegram не даст боту
+отправить ему первое сообщение.
+------------------------------------------------------------
+HELP
         while true; do
-            echo "--- 3.2 CHAT ID ---"
-            echo "Узнайте у @userinfobot. Можно несколько через пробел."
             printf "Chat ID: "
             read TG_CHAT_IDS
             if ! is_filled "$TG_CHAT_IDS"; then
@@ -641,6 +625,10 @@ cat << 'MENU'
 ============================================================
    ШАГ 4. ОБХОДЧИК DPI (опционально)
 ============================================================
+Если обходчик не установлен — выберите «нет».
+Argus-K умеет синхронизировать состояние обходчика с
+режимом прокси.
+
   1) Нет / не использую
   2) nfqws-keenetic               /opt/etc/init.d/S51nfqws
   3) nfqws2-keenetic              /opt/etc/init.d/S51nfqws2
@@ -679,44 +667,34 @@ esac
 
 if [ "$Z2K_TYPE" != "none" ] && [ -n "$Z2K_INIT" ]; then
     if [ ! -x "$Z2K_INIT" ]; then
-        echo ""
-        echo "Файл '$Z2K_INIT' не найден или не исполняемый."
-        printf "   Продолжить? (y/N): "
+        echo "Файл $Z2K_INIT не найден или не исполняемый."
+        printf "Продолжить? (y/N): "
         read OK
         case "$OK" in
             y|Y|yes|YES) ;;
             *) Z2K_TYPE="none"; Z2K_INIT="" ;;
         esac
     else
-        echo ""
         echo "Обходчик найден: $Z2K_INIT"
     fi
 fi
 echo ""
 
-echo ""
 echo "============================================================"
 echo "  ИТОГОВЫЕ ДАННЫЕ"
 echo "============================================================"
 echo "  WAN_IF            = $WAN_IF"
 echo "  WAN_IF_IP         = ${WAN_IF_IP:-(нет IPv4)}"
-echo "  WAN_IF_GW         = ${WAN_IF_GW:-(нет шлюза)}"
 echo "  LOCAL_NET         = $LOCAL_NET"
 echo "  ROUTER_IP         = $ROUTER_IP"
 echo "  SUB_URL           = $SUB_URL"
 echo "  HAPP_HWID         = $HWID"
-echo "  HAPP_VERSION      = $HAPP_VERSION_FIXED"
 echo "  UA_DEVICE_ID      = $UA_ID"
 echo "  DEVICE_MODEL      = $DEVICE_MODEL"
 echo "  TG_TUNNEL         = $TG_TUNNEL_ENABLED"
 echo "  SPLIT_ROUTING     = $SPLIT_ROUTING_ENABLED"
-if [ -n "$TG_TOKEN" ]; then
-    echo "  TG_TOKEN          = $TG_TOKEN"
-    echo "  TG_CHAT_IDS       = $TG_CHAT_IDS"
-else
-    echo "  TG_TOKEN          = (не настроен)"
-    echo "  TG_CHAT_IDS       = (не настроены)"
-fi
+echo "  TG_TOKEN          = ${TG_TOKEN:-(не настроен)}"
+echo "  TG_CHAT_IDS       = ${TG_CHAT_IDS:-(не настроены)}"
 echo "  Z2K_TYPE          = $Z2K_TYPE"
 echo "  Z2K_INIT          = ${Z2K_INIT:-(не используется)}"
 echo ""
@@ -788,3 +766,32 @@ echo ""
 echo "============================================================"
 echo "  Установка завершена."
 echo "============================================================"
+echo ""
+echo "Полезные команды Telegram-бота."
+echo "Чтобы добавить их в меню бота — напишите @BotFather,"
+echo "отправьте /setcommands, выберите своего бота и вставьте"
+echo "список ниже:"
+echo ""
+echo "status - текущее состояние"
+echo "on - включить прокси вручную"
+echo "off - выключить прокси вручную"
+echo "auto - автоматический режим"
+echo "next - переключить на следующий живой конфиг"
+echo "use - выбрать конфиг по маске (укажите часть имени)"
+echo "configs - список конфигов"
+echo "restart - перезапустить Xray"
+echo "update - обновить конфиги из подписки"
+echo "diag - диагностический отчёт"
+echo "log - последние строки лога"
+echo "help - список команд"
+echo ""
+echo "Управление из консоли роутера:"
+echo "  /opt/etc/init.d/S99argus status"
+echo "  /opt/etc/init.d/S99argus start"
+echo "  /opt/etc/init.d/S99argus stop"
+echo "  /opt/etc/init.d/S99argus restart"
+echo ""
+echo "Диагностика:"
+echo "  sh /opt/etc/argus-k-debug.sh"
+echo "  sh /opt/etc/argus-k-debug.sh --tg  (отправить в Telegram)"
+echo ""
