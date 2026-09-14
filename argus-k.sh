@@ -1244,21 +1244,25 @@ is_ru_site_reachable() {
 }
 
 is_public_internet_reachable() {
-    # Параллельная проверка канареек: все запускаются одновременно,
-    # общее время = max(таймаутов), а не сумма.
-    # В OPEN первый ответ успевает за 1-2 сек, в WHITELIST все таймаутят за ~3 сек.
+    # Параллельная проверка канареек. Запускаем все одновременно,
+    # ждём конкретные PID (не голый wait — он поймает bg_monitor
+    # и повесит главный цикл).
     local tmpdir="$STATE_DIR/canary.$$"
     rm -rf "$tmpdir"
     mkdir -p "$tmpdir"
-    local ip
+    local ip pids=""
     for ip in $WHITELIST_CANARIES; do
         (
             curl -s -k -o /dev/null --connect-timeout 2 --max-time 3 \
                  --interface "$WAN_IF" "https://$ip/" 2>/dev/null
             echo "$?" > "$tmpdir/$ip"
         ) &
+        pids="$pids $!"
     done
-    wait
+    local p
+    for p in $pids; do
+        wait "$p"
+    done
     local rc alive=0
     for f in "$tmpdir"/*; do
         [ -f "$f" ] || continue
