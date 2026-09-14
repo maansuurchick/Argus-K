@@ -1103,7 +1103,7 @@ setup_telegram_ipset() {
 
 setup_tg_prerouting_chain() {
     [ "$TG_TUNNEL_ENABLED" = "yes" ] || return 0
-    local local SERVERS_LOCAL=$(extract_server_ips)
+    local SERVERS_LOCAL=$(extract_server_ips)
 
     $IPT_BIN -t nat -F XRAY_TG_PREROUTING 2>/dev/null
     $IPT_BIN -t nat -X XRAY_TG_PREROUTING 2>/dev/null
