@@ -175,7 +175,35 @@ for pkg_cmd in "jq:jq" "curl:curl" "ipset:ipset"; do
 done
 
 if ! command -v xray >/dev/null 2>&1 && [ ! -x /opt/sbin/xray ]; then
-    opkg install xray >/dev/null 2>&1 || true
+    echo "Устанавливаю Xray..."
+    opkg install xray-core >/dev/null 2>&1 || true
+    if ! command -v xray >/dev/null 2>&1 && [ ! -x /opt/sbin/xray ]; then
+        echo "  пакет не нашёлся — качаю с GitHub"
+        case "$(uname -m)" in
+            aarch64)      XRAY_ARCH="arm64-v8a" ;;
+            armv7l|armv7) XRAY_ARCH="arm32-v7a" ;;
+            mips)         XRAY_ARCH="mips32" ;;
+            mipsel)       XRAY_ARCH="mips32le" ;;
+            x86_64)       XRAY_ARCH="64" ;;
+            *)
+                echo "  ошибка: неизвестная архитектура $(uname -m)"
+                exit 1
+                ;;
+        esac
+        TMPD=$(mktemp -d)
+        URL="https://github.com/XTLS/Xray-core/releases/latest/download/Xray-linux-${XRAY_ARCH}.zip"
+        if curl -fsSL -o "$TMPD/x.zip" "$URL"; then
+            opkg install unzip >/dev/null 2>&1 || true
+            unzip -o "$TMPD/x.zip" -d "$TMPD" >/dev/null
+            mv "$TMPD/xray" /opt/sbin/xray
+            chmod +x /opt/sbin/xray
+        else
+            echo "  ошибка: не удалось скачать Xray"
+            rm -rf "$TMPD"
+            exit 1
+        fi
+        rm -rf "$TMPD"
+    fi
 fi
 if command -v xray >/dev/null 2>&1 || [ -x /opt/sbin/xray ]; then
     echo "OK Xray"
