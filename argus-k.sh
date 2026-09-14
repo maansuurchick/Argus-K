@@ -730,6 +730,78 @@ send_tg() {
     fi
 }
 
+send_tg_with_markup() {
+    [ -z "$TG_TOKEN" ] && return 0
+    local body="$1"
+    local markup="$2"
+    local cid
+    for cid in $TG_CHAT_IDS; do
+        [ -z "$cid" ] && continue
+        tg_send_curl --data-urlencode "chat_id=$cid" \
+                     --data-urlencode "text=$body" \
+                     --data-urlencode "reply_markup=$markup" >/dev/null 2>&1
+    done
+}
+
+answer_callback() {
+    local cbid="$1"
+    [ -z "$TG_TOKEN" ] && return 0
+    [ -z "$cbid" ] && return 0
+    curl -x socks5h://127.0.0.1:$SOCKS_PORT -s -o /dev/null \
+         --connect-timeout 5 --max-time 10 \
+         --data-urlencode "callback_query_id=$cbid" \
+         "https://api.telegram.org/bot$TG_TOKEN/answerCallbackQuery" 2>>"$LOG_FILE"
+}
+
+show_configs_keyboard() {
+    local chat="$1"
+    local listfile="$STATE_DIR/config_list.${chat}.txt"
+    get_config_list > "$listfile"
+    local cnt=$(wc -l < "$listfile" 2>/dev/null)
+    if [ "$cnt" -eq 0 ]; then
+        send_tg "Конфигов нет. Обновите командой /update."
+        return
+    fi
+
+    local keyboard
+    keyboard=$(jq -R -s '
+        split("\n") | map(select(length > 0)) |
+        to_entries | map(
+            .value as $path | .key as $idx |
+            ($path | sub("^.*/"; "") | sub("^sub_"; "") | sub("\\.json$"; "")) as $name |
+            {
+                text: ((($idx + 1) | tostring) + ". " + ($name | .[0:45])),
+                callback_data: ("use_" + (($idx + 1) | tostring))
+            }
+        ) as $rows |
+        { inline_keyboard: ($rows | map([.])) }
+    ' "$listfile")
+
+    if [ -z "$keyboard" ] || ! echo "$keyboard" | grep -q inline_keyboard; then
+        send_tg "Не удалось построить список. Попробуйте /configs ещё раз."
+        return
+    fi
+
+    send_tg_with_markup "Выберите конфиг ($cnt шт.):" "$keyboard"
+}
+
+use_config_by_path() {
+    local path="$1"
+    if [ -z "$path" ] || [ ! -f "$path" ]; then
+        send_tg "Конфиг не найден."
+        return 1
+    fi
+    kill_main_xray
+    if start_main_xray "$path"; then
+        set_xray_rules
+        load_proxy_state
+        [ "$PROXY_STATE" = "on" ] && enable_redirect
+        send_tg "Переключено на $(basename "$path")"
+    else
+        send_tg "Не удалось запустить Xray с $(basename "$path")"
+    fi
+}
+
 tg_poll_curl() {
     local offset="$1"
     curl -x socks5h://127.0.0.1:$SOCKS_PORT -s --connect-timeout 8 --max-time $((TG_POLL_TIMEOUT + 10)) \
@@ -741,9 +813,14 @@ mkdir -p "$TG_QUEUE_DIR"
 
 tg_parse_updates() {
     jq -r '
-        (.result // [])[]
-        | select(.message.text != null)
-        | "\(.message.chat.id)\t\(.message.text)"
+        (.result // [])[] |
+        if .callback_query then
+            "\(.callback_query.message.chat.id)\t__CB:\(.callback_query.id):\(.callback_query.data)"
+        elif .message.text then
+            "\(.message.chat.id)\t\(.message.text)"
+        else
+            empty
+        end
     ' 2>/dev/null
 }
 
@@ -1228,6 +1305,32 @@ process_tg_commands() {
         mv "$f" "$proc" 2>/dev/null || continue
         while IFS="$(printf '\t')" read -r chat text; do
         is_allowed_chat "$chat" || continue
+
+        case "$text" in
+            __CB:*)
+                local cbid=$(echo "$text" | cut -d: -f2)
+                local cbdata=$(echo "$text" | cut -d: -f3-)
+                answer_callback "$cbid"
+                case "$cbdata" in
+                    use_*)
+                        local idx="${cbdata#use_}"
+                        local listfile="$STATE_DIR/config_list.${chat}.txt"
+                        if [ -f "$listfile" ]; then
+                            local path=$(sed -n "${idx}p" "$listfile")
+                            if [ -n "$path" ] && [ -f "$path" ]; then
+                                use_config_by_path "$path"
+                            else
+                                send_tg "Конфиг больше не существует. Откройте /configs заново."
+                            fi
+                        else
+                            send_tg "Список устарел. Отправьте /configs заново."
+                        fi
+                        continue
+                        ;;
+                esac
+                continue
+                ;;
+        esac
         local cmd=$(echo "$text" | awk '{print tolower($1)}')
         local arg=$(echo "$text" | cut -s -d' ' -f2-)
 
@@ -1289,16 +1392,14 @@ TG-туннель: $TG_TUNNEL_ENABLED
                 switch_config
                 ;;
             /use)
-                [ -n "$arg" ] && use_config_by_name "$arg" || send_tg "Укажите часть имени: /use turkey"
+                if [ -n "$arg" ]; then
+                    use_config_by_name "$arg"
+                else
+                    show_configs_keyboard "$chat"
+                fi
                 ;;
             /configs)
-                local all=$(get_config_list | xargs -n1 basename 2>/dev/null)
-                local live=$(get_live_config_list | xargs -n1 basename 2>/dev/null)
-                send_tg "Все конфиги:
-$all
-
-Живые:
-$live"
+                show_configs_keyboard "$chat"
                 ;;
             /restart)
                 kill_main_xray
