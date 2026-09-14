@@ -33,6 +33,42 @@ if [ -f "$CONF_FILE" ]; then
     . "$CONF_FILE"
 fi
 
+# ============================================================================
+# Дефолты для переменных, которые обычно приходят из argus-k.conf.
+# Если conf отсутствует или в нём нет переменной — используются эти значения.
+# Защита от ситуации, когда conf потерян или неполный.
+# ============================================================================
+
+# --- ПОДПИСКА HAPP ---
+SUBSCRIPTION_URL="${SUBSCRIPTION_URL:-}"
+HAPP_HWID="${HAPP_HWID:-}"
+HAPP_VERSION="${HAPP_VERSION:-4.3.0}"
+HAPP_UA_DEVICE_ID="${HAPP_UA_DEVICE_ID:-}"
+HAPP_DEVICE_MODEL="${HAPP_DEVICE_MODEL:-Android Device}"
+HAPP_DEVICE_NAME="${HAPP_DEVICE_NAME:-Android Device}"
+HAPP_VER_OS="${HAPP_VER_OS:-15}"
+HAPP_LOCALE="${HAPP_LOCALE:-ru-RU}"
+
+# --- TELEGRAM ---
+TG_TOKEN="${TG_TOKEN:-}"
+TG_CHAT_IDS="${TG_CHAT_IDS:-}"
+
+# --- СЕТЬ ---
+WAN_IF="${WAN_IF:-}"
+LOCAL_NET="${LOCAL_NET:-}"
+ROUTER_IP="${ROUTER_IP:-}"
+EXCLUDED_IPS="${EXCLUDED_IPS:-}"
+WHITELIST_CANARIES="${WHITELIST_CANARIES:-1.1.1.1 8.8.8.8 9.9.9.9 208.67.222.222}"
+
+# --- ФИЧИ ---
+SPLIT_ROUTING_ENABLED="${SPLIT_ROUTING_ENABLED:-yes}"
+TG_TUNNEL_ENABLED="${TG_TUNNEL_ENABLED:-no}"
+
+# --- ОБХОДЧИК DPI ---
+Z2K_TYPE="${Z2K_TYPE:-none}"
+Z2K_INIT="${Z2K_INIT:-}"
+
+
 # ======================== НАСТРОЙКИ ПОЛЬЗОВАТЕЛЯ ============================
 # ============================================================================
 
@@ -60,19 +96,19 @@ HOOK_FILE="/opt/etc/ndm/netfilter.d/099-argus-k.sh"
 SPLIT_DOMAINS_FILE="/opt/etc/argus-k-split-domains.txt"
 
 # --- ПАРАМЕТРЫ ---
-MAIN_LOOP_SLEEP=3
-HEALTH_CHECK_INTERVAL=4
-HEALTH_FAIL_THRESHOLD=1
-CONNECT_TIMEOUT=6
-TEST_MAX_TIME=15
-MIN_STABLE_SECONDS=45
+MAIN_LOOP_SLEEP="${MAIN_LOOP_SLEEP:-3}"
+HEALTH_CHECK_INTERVAL="${HEALTH_CHECK_INTERVAL:-4}"
+HEALTH_FAIL_THRESHOLD="${HEALTH_FAIL_THRESHOLD:-1}"
+CONNECT_TIMEOUT="${CONNECT_TIMEOUT:-6}"
+TEST_MAX_TIME="${TEST_MAX_TIME:-15}"
+MIN_STABLE_SECONDS="${MIN_STABLE_SECONDS:-45}"
 TG_POLL_TIMEOUT=5
-BG_MONITOR_INTERVAL=900
-WHITELIST_CACHE_TTL=90
-WHITELIST_CACHE_TTL_ON=20
-TELEGRAM_IPS_TTL=43200
-CONFIG_UPDATE_INTERVAL=86400
-CONFIG_RETRY_BACKOFF=300
+BG_MONITOR_INTERVAL="${BG_MONITOR_INTERVAL:-900}"
+WHITELIST_CACHE_TTL="${WHITELIST_CACHE_TTL:-90}"
+WHITELIST_CACHE_TTL_ON="${WHITELIST_CACHE_TTL_ON:-20}"
+TELEGRAM_IPS_TTL="${TELEGRAM_IPS_TTL:-43200}"
+CONFIG_UPDATE_INTERVAL="${CONFIG_UPDATE_INTERVAL:-86400}"
+CONFIG_RETRY_BACKOFF="${CONFIG_RETRY_BACKOFF:-300}"
 
 # ============================================================================
 # ===================== КОНЕЦ НАСТРОЕК ПОЛЬЗОВАТЕЛЯ ==========================
@@ -162,7 +198,7 @@ is_lan_iface() {
 
 autodetect_wan_if() {
     local rt
-    rt=$(ip route show default 2>/dev/null | awk '/default/ {print $5; exit}')
+    rt=$(ip route show default 2>/dev/null | sed -n 's/.* dev \([^ ]*\).*/\1/p' | head -1)
     if [ -n "$rt" ] && ! is_lan_iface "$rt"; then
         echo "$rt"
         return 0
