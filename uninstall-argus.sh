@@ -31,6 +31,7 @@ LOG_FILE="/tmp/argus-k.log"
 LIVE_FILE="/tmp/argus-k-live_configs.txt"
 TG_IPS_FILE="/tmp/argus-k-telegram_ips.txt"
 CONFIG_DIR="/opt/etc/xray/configs"
+ARGUS_CONF="/opt/etc/argus-k.conf"
 
 IPT_BIN="/opt/sbin/iptables"
 [ -x "$IPT_BIN" ] || IPT_BIN=$(command -v iptables)
@@ -209,6 +210,22 @@ else
 fi
 echo "============================================================"
 echo ""
+# Восстанавливаем обходчик DPI, если он был настроен
+if [ -f "$ARGUS_CONF" ]; then
+    Z2K_TYPE_SAVED=$(grep "^Z2K_TYPE=" "$ARGUS_CONF" 2>/dev/null | cut -d= -f2- | tr -d '"')
+    Z2K_INIT_SAVED=$(grep "^Z2K_INIT=" "$ARGUS_CONF" 2>/dev/null | cut -d= -f2- | tr -d '"')
+    if [ -n "$Z2K_INIT_SAVED" ] && [ "$Z2K_TYPE_SAVED" != "none" ] && [ -x "$Z2K_INIT_SAVED" ]; then
+        echo ""
+        echo "=== Шаг 8. Восстановление обходчика DPI ==="
+        echo "  Обходчик: $Z2K_TYPE_SAVED ($Z2K_INIT_SAVED)"
+        if ask "  Включить его обратно?"; then
+            "$Z2K_INIT_SAVED" start 2>/dev/null && echo "  запущен" || echo "  не удалось запустить"
+        else
+            echo "  оставлен выключенным"
+        fi
+    fi
+fi
+
 echo "Xray (/opt/sbin/xray), Entware и его пакеты не тронуты."
 echo "Если хочешь удалить и Xray:"
 echo "  opkg remove xray"

@@ -109,6 +109,7 @@ WHITELIST_CACHE_TTL_ON="${WHITELIST_CACHE_TTL_ON:-20}"
 TELEGRAM_IPS_TTL="${TELEGRAM_IPS_TTL:-43200}"
 CONFIG_UPDATE_INTERVAL="${CONFIG_UPDATE_INTERVAL:-86400}"
 CONFIG_RETRY_BACKOFF="${CONFIG_RETRY_BACKOFF:-300}"
+MAX_CONFIGS_PER_SCAN="${MAX_CONFIGS_PER_SCAN:-15}"
 
 # ============================================================================
 # ===================== КОНЕЦ НАСТРОЕК ПОЛЬЗОВАТЕЛЯ ==========================
@@ -213,6 +214,27 @@ autodetect_wan_if() {
     return 1
 }
 
+# Извлекает IP-адреса VPN-серверов из всех конфигов подписки.
+# Смотрит только outbounds с протоколами vless/vmess/trojan/shadowsocks,
+# чтобы IP из dns.servers или других мест не попали в исключения.
+extract_server_ips() {
+    [ -z "$CONFIG_DIR" ] && return 0
+    command -v jq >/dev/null 2>&1 || {
+        grep -hoE '"address": *"[^"]+"' "$CONFIG_DIR"/*.json 2>/dev/null \
+            | cut -d'"' -f4 \
+            | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' \
+            | sort -u
+        return 0
+    }
+    jq -r '
+        .outbounds[]?
+        | select(.protocol == "vless" or .protocol == "vmess" or .protocol == "trojan" or .protocol == "shadowsocks")
+        | (.settings.vnext[]?.address // .settings.servers[]?.address // empty)
+    ' "$CONFIG_DIR"/*.json 2>/dev/null \
+        | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' \
+        | sort -u
+}
+
 # ============================ УТИЛИТЫ =======================================
 sanitize_filename() {
     printf '%s' "$1" | sed \
@@ -225,6 +247,7 @@ sanitize_filename() {
 
 json_replace_key() {
     local infile="$1" outfile="$2" key="$3" repl="$4"
+
     awk -v key="\"$key\"" -v repl="$repl" '
     BEGIN { found = 0; skipping = 0 }
     {
@@ -294,6 +317,22 @@ json_replace_key() {
         }
     }
     ' "$infile" > "$outfile"
+
+    # Валидация результата
+    if [ -s "$outfile" ] && command -v jq >/dev/null 2>&1 && jq empty "$outfile" 2>/dev/null; then
+        return 0
+    fi
+
+    # Fallback: медленный, но надёжный jq
+    if command -v jq >/dev/null 2>&1; then
+        if jq --argjson v "$repl" ".$key = \$v" "$infile" > "$outfile.fb" 2>/dev/null && jq empty "$outfile.fb" 2>/dev/null; then
+            mv "$outfile.fb" "$outfile"
+            return 0
+        fi
+        rm -f "$outfile.fb"
+    fi
+
+    return 1
 }
 
 prepare_run_config() {
@@ -737,9 +776,43 @@ use_config_by_name() {
     fi
 }
 background_monitor() {
+    # Проверяем не более MAX_CONFIGS_PER_SCAN конфигов за прогон.
+    # На слабых роутерах с десятками конфигов это снижает пиковую
+    # нагрузку. Следующий прогон продолжит с того же места.
+    local scan_cursor_file="$STATE_DIR/scan_cursor.txt"
     while true; do
         sleep "$BG_MONITOR_INTERVAL"
-        scan_configs_liveness
+        local cursor=0
+        [ -f "$scan_cursor_file" ] && cursor=$(cat "$scan_cursor_file" 2>/dev/null || echo 0)
+        local total=$(get_config_list | wc -l)
+        if [ "$total" -eq 0 ]; then
+            continue
+        fi
+        log "Фоновое сканирование: с позиции $cursor из $total (бюджет $MAX_CONFIGS_PER_SCAN)"
+        local checked=0
+        local idx=0
+        local tmp_live="$STATE_DIR/live_configs.tmp"
+        : > "$tmp_live"
+        OLD_IFS="$IFS"; IFS='
+'
+        for f in $(get_config_list); do
+            idx=$((idx + 1))
+            [ "$idx" -lt "$cursor" ] && continue
+            [ "$checked" -ge "$MAX_CONFIGS_PER_SCAN" ] && break
+            [ "$f" = "$CURRENT_CONFIG" ] && continue
+            test_config_liveness "$f" && echo "$f" >> "$tmp_live"
+            checked=$((checked + 1))
+        done
+        IFS="$OLD_IFS"
+        local new_cursor=$((cursor + checked))
+        [ "$new_cursor" -ge "$total" ] && new_cursor=0
+        echo "$new_cursor" > "$scan_cursor_file"
+        if [ -f "$LIVE_CONFIGS_FILE" ]; then
+            cat "$LIVE_CONFIGS_FILE" >> "$tmp_live" 2>/dev/null
+        fi
+        sort -u "$tmp_live" | sed '/^$/d' > "$LIVE_CONFIGS_FILE.tmp"
+        mv "$LIVE_CONFIGS_FILE.tmp" "$LIVE_CONFIGS_FILE"
+        log "Фоновое сканирование: проверено $checked, курсор $new_cursor/$total, живых $(wc -l < "$LIVE_CONFIGS_FILE" 2>/dev/null)"
     done
 }
 start_background_monitor() {
@@ -1030,7 +1103,7 @@ setup_telegram_ipset() {
 
 setup_tg_prerouting_chain() {
     [ "$TG_TUNNEL_ENABLED" = "yes" ] || return 0
-    local SERVERS_LOCAL=$(grep -hoE '"address": *"[^"]+"' "$CONFIG_DIR"/*.json 2>/dev/null | cut -d'"' -f4 | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' | sort -u)
+    local local SERVERS_LOCAL=$(extract_server_ips)
 
     $IPT_BIN -t nat -F XRAY_TG_PREROUTING 2>/dev/null
     $IPT_BIN -t nat -X XRAY_TG_PREROUTING 2>/dev/null
@@ -1062,7 +1135,7 @@ set_xray_rules() {
     $IPT_BIN -t nat -A XRAY_PREROUTING -d "$ROUTER_IP" -p tcp --dport 53 -j REDIRECT --to-ports "$PROXY_PORT"
     $IPT_BIN -t nat -A XRAY_PREROUTING -d "$ROUTER_IP" -j RETURN
 
-    SERVERS=$(grep -hoE '"address": *"[^"]+"' "$CONFIG_DIR"/*.json 2>/dev/null | cut -d'"' -f4 | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' | sort -u)
+    SERVERS=$(extract_server_ips)
     for SERVER in $SERVERS; do
         $IPT_BIN -t nat -A XRAY_PREROUTING -d "$SERVER" -j RETURN 2>/dev/null
     done
