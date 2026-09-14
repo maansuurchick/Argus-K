@@ -204,13 +204,68 @@ split routing — Argus-K в него не лезет.
 
 ## Удаление
 
+### Автоматически (рекомендуется)
+
 ```sh
+sh /opt/etc/uninstall-argus.sh
+```
+
+Скрипт спросит подтверждение, затем удалит:
+- службу Argus-K и её Xray-процесс;
+- iptables-цепочки `XRAY_PREROUTING`, `XRAY_OUTPUT`, `XRAY_TG_PREROUTING`;
+- ipset `argus_k_tg_ips`;
+- hook-файл `/opt/etc/ndm/netfilter.d/099-argus-k.sh`;
+- все файлы скрипта из `/opt/etc/`;
+- каталог состояния `/tmp/argus-k` и логи.
+
+Спросит отдельно, удалять ли скачанные конфиги
+(`/opt/etc/xray/configs/sub_*.json`). Можно сохранить их
+флагом:
+
+```sh
+sh /opt/etc/uninstall-argus.sh --keep-configs
+```
+
+Без интерактивных вопросов (например, для скрипта):
+
+```sh
+sh /opt/etc/uninstall-argus.sh --yes
+```
+
+### Что НЕ удаляется
+
+Скрипт **не трогает**:
+- Xray (`/opt/sbin/xray`) — установлен через Entware;
+- пакеты Entware (`jq`, `curl`, `ipset`);
+- твои собственные конфиги Xray, не начинающиеся с `sub_`.
+
+Если хочешь удалить и Xray:
+
+```sh
+opkg remove xray
+```
+
+### Вручную
+
+Если автоматический удалятор недоступен:
+
+````sh
 /opt/etc/init.d/S99argus stop
+killall -9 xray 2>/dev/null
+iptables -t nat -D PREROUTING -j XRAY_TG_PREROUTING 2>/dev/null
+iptables -t nat -D PREROUTING -j XRAY_PREROUTING 2>/dev/null
+iptables -t nat -D OUTPUT -j XRAY_OUTPUT 2>/dev/null
+iptables -t nat -F XRAY_PREROUTING 2>/dev/null; iptables -t nat -X XRAY_PREROUTING 2>/dev/null
+iptables -t nat -F XRAY_OUTPUT 2>/dev/null; iptables -t nat -X XRAY_OUTPUT 2>/dev/null
+iptables -t nat -F XRAY_TG_PREROUTING 2>/dev/null; iptables -t nat -X XRAY_TG_PREROUTING 2>/dev/null
+ipset destroy argus_k_tg_ips 2>/dev/null
+rm -f /opt/etc/ndm/netfilter.d/099-argus-k.sh
 rm -f /opt/etc/init.d/S99argus /opt/etc/argus-k.sh
 rm -f /opt/etc/install-argus.sh /opt/etc/argus-k-debug.sh
-rm -f /opt/etc/argus-k-split-domains.txt
+rm -f /opt/etc/argus-k-split-domains.txt /opt/etc/uninstall-argus.sh
 rm -rf /tmp/argus-k
-```
+rm -f /tmp/argus-k.log /tmp/argus-k-live_configs.txt /tmp/argus-k-telegram_ips.txt
+````
 
 ## Лицензия
 
