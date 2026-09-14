@@ -158,6 +158,7 @@ if ! mount 2>/dev/null | grep -q " /opt "; then
     exit 1
 fi
 
+FAILED=0
 for pkg_cmd in "jq:jq" "curl:curl" "ipset:ipset"; do
     pkg="${pkg_cmd%%:*}"
     cmd="${pkg_cmd##*:}"
@@ -165,13 +166,31 @@ for pkg_cmd in "jq:jq" "curl:curl" "ipset:ipset"; do
         opkg update >/dev/null 2>&1 || true
         opkg install "$pkg" >/dev/null 2>&1 || true
     fi
-    command -v "$cmd" >/dev/null 2>&1 && echo "OK $cmd" || echo "MISS $cmd"
+    if command -v "$cmd" >/dev/null 2>&1; then
+        echo "OK $cmd"
+    else
+        echo "MISS $cmd"
+        FAILED=$((FAILED + 1))
+    fi
 done
 
 if ! command -v xray >/dev/null 2>&1 && [ ! -x /opt/sbin/xray ]; then
     opkg install xray >/dev/null 2>&1 || true
 fi
-command -v xray >/dev/null 2>&1 || [ -x /opt/sbin/xray ] && echo "OK Xray"
+if command -v xray >/dev/null 2>&1 || [ -x /opt/sbin/xray ]; then
+    echo "OK Xray"
+else
+    echo "MISS Xray"
+    FAILED=$((FAILED + 1))
+fi
+
+if [ "$FAILED" -gt 0 ]; then
+    echo ""
+    echo "Критичные зависимости не установлены."
+    echo "Установите вручную: opkg install jq curl ipset xray"
+    echo "Установка прервана."
+    exit 1
+fi
 
 mkdir -p /opt/etc/xray/configs /opt/var/log/xray
 
