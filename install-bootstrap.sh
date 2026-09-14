@@ -10,6 +10,7 @@ BASE_URL="https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/${BRANCH}
 INSTALLER_DST="/opt/etc/install-argus.sh"
 ARGUS_DST="/opt/etc/argus-k.sh"
 DEBUG_DST="/opt/etc/argus-k-debug.sh"
+UNINSTALL_DST="/opt/etc/uninstall-argus.sh"
 INIT_DST="/opt/etc/init.d/S99argus"
 SPLIT_DST="/opt/etc/argus-k-split-domains.txt"
 CONF_DST="/opt/etc/argus-k.conf"
@@ -38,6 +39,7 @@ for pair in \
     "install-argus.sh:$INSTALLER_DST" \
     "argus-k-debug.sh:$DEBUG_DST" \
     "templates/S99argus:$INIT_DST" \
+    "uninstall-argus.sh:$UNINSTALL_DST" \
     "templates/split-domains.txt:$SPLIT_DST"
 do
     src="${pair%%:*}"
