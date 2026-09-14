@@ -779,6 +779,11 @@ background_monitor() {
     # Проверяем не более MAX_CONFIGS_PER_SCAN конфигов за прогон.
     # На слабых роутерах с десятками конфигов это снижает пиковую
     # нагрузку. Следующий прогон продолжит с того же места.
+    #
+    # Важно: из старого списка живых вычитаем ВСЁ, что проверялось
+    # в этом проходе (и живых, и мёртвых). Только после этого
+    # добавляем результаты новых тестов. Иначе мёртвые, проверенные
+    # и не прошедшие тест, остаются в кэше навсегда.
     local scan_cursor_file="$STATE_DIR/scan_cursor.txt"
     while true; do
         sleep "$BG_MONITOR_INTERVAL"
@@ -792,7 +797,9 @@ background_monitor() {
         local checked=0
         local idx=0
         local tmp_live="$STATE_DIR/live_configs.tmp"
+        local checked_file="$STATE_DIR/checked_this_pass.tmp"
         : > "$tmp_live"
+        : > "$checked_file"
         OLD_IFS="$IFS"; IFS='
 '
         for f in $(get_config_list); do
@@ -800,6 +807,7 @@ background_monitor() {
             [ "$idx" -lt "$cursor" ] && continue
             [ "$checked" -ge "$MAX_CONFIGS_PER_SCAN" ] && break
             [ "$f" = "$CURRENT_CONFIG" ] && continue
+            echo "$f" >> "$checked_file"
             test_config_liveness "$f" && echo "$f" >> "$tmp_live"
             checked=$((checked + 1))
         done
@@ -807,8 +815,9 @@ background_monitor() {
         local new_cursor=$((cursor + checked))
         [ "$new_cursor" -ge "$total" ] && new_cursor=0
         echo "$new_cursor" > "$scan_cursor_file"
+        # Вычитаем из старого списка всё проверенное в этом проходе
         if [ -f "$LIVE_CONFIGS_FILE" ]; then
-            cat "$LIVE_CONFIGS_FILE" >> "$tmp_live" 2>/dev/null
+            grep -vFxf "$checked_file" "$LIVE_CONFIGS_FILE" >> "$tmp_live" 2>/dev/null
         fi
         sort -u "$tmp_live" | sed '/^$/d' > "$LIVE_CONFIGS_FILE.tmp"
         mv "$LIVE_CONFIGS_FILE.tmp" "$LIVE_CONFIGS_FILE"

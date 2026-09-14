@@ -186,8 +186,8 @@ if ! command -v xray >/dev/null 2>&1 && [ ! -x /opt/sbin/xray ]; then
             mipsel)       XRAY_ARCH="mips32le" ;;
             x86_64)       XRAY_ARCH="64" ;;
             *)
-                echo "  ошибка: неизвестная архитектура $(uname -m)"
-                exit 1
+                echo "  неизвестная архитектура $(uname -m)"
+                XRAY_ARCH=""
                 ;;
         esac
         TMPD=$(mktemp -d)
@@ -198,9 +198,8 @@ if ! command -v xray >/dev/null 2>&1 && [ ! -x /opt/sbin/xray ]; then
             mv "$TMPD/xray" /opt/sbin/xray
             chmod +x /opt/sbin/xray
         else
-            echo "  ошибка: не удалось скачать Xray"
+            echo "  не удалось скачать Xray с GitHub"
             rm -rf "$TMPD"
-            exit 1
         fi
         rm -rf "$TMPD"
     fi
@@ -215,7 +214,7 @@ fi
 if [ "$FAILED" -gt 0 ]; then
     echo ""
     echo "Критичные зависимости не установлены."
-    echo "Установите вручную: opkg install jq curl ipset xray"
+    echo "Установите вручную: opkg install jq curl ipset xray-core"
     echo "Установка прервана."
     exit 1
 fi
