@@ -145,7 +145,7 @@ LAST_SWITCH_TS=0
 
 TEST_INBOUNDS='[{"listen":"127.0.0.1","port":'"$TEST_SOCKS_PORT"',"protocol":"socks","settings":{"auth":"noauth","udp":true}},{"listen":"127.0.0.1","port":'"$TEST_HTTP_PORT"',"protocol":"http","settings":{}}]'
 
-MAIN_INBOUNDS='[{"listen":"127.0.0.1","port":'"$SOCKS_PORT"',"protocol":"socks","settings":{"auth":"noauth","udp":true,"userLevel":8},"sniffing":{"destOverride":["http","tls","quic"],"enabled":true},"tag":"socks"},{"listen":"0.0.0.0","port":'"$PROXY_PORT"',"protocol":"dokodemo-door","settings":{"network":"tcp,udp","followRedirect":true,"userLevel":8},"sniffing":{"destOverride":["http","tls","quic"],"enabled":true},"tag":"transparent"}]'
+MAIN_INBOUNDS='[{"listen":"127.0.0.1","port":'"$SOCKS_PORT"',"protocol":"socks","settings":{"auth":"noauth","udp":true,"userLevel":8},"sniffing":{"destOverride":["http","tls"],"enabled":true},"tag":"socks"},{"listen":"0.0.0.0","port":'"$PROXY_PORT"',"protocol":"dokodemo-door","settings":{"network":"tcp,udp","followRedirect":true,"userLevel":8},"sniffing":{"destOverride":["http","tls"],"enabled":true},"tag":"transparent"}]'
 
 # ============================== ЛОГИРОВАНИЕ =================================
 log() {
