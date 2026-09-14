@@ -1,6 +1,6 @@
 #!/bin/sh
 # ============================================================================
-# argus-k.sh  (v5.8.5)
+# argus-k.sh  (v5.8.6)
 # BusyBox ash / KeeneticOS + Entware.
 #
 # Argus-K — автоматическое управление Xray на роутерах Keenetic
@@ -1026,8 +1026,6 @@ generate_hook_file() {
         echo '$IPT -t nat -N XRAY_PREROUTING'
         echo '$IPT -t nat -N XRAY_OUTPUT'
         echo ''
-        echo '$IPT -t nat -A XRAY_PREROUTING -d "$ROUTER_IP" -p udp --dport 53 -j REDIRECT --to-ports "$PROXY_PORT"'
-        echo '$IPT -t nat -A XRAY_PREROUTING -d "$ROUTER_IP" -p tcp --dport 53 -j REDIRECT --to-ports "$PROXY_PORT"'
         echo '$IPT -t nat -A XRAY_PREROUTING -d "$ROUTER_IP" -j RETURN'
         for SERVER in $servers; do
             echo "\$IPT -t nat -A XRAY_PREROUTING -d \"$SERVER\" -j RETURN 2>/dev/null"
@@ -1140,8 +1138,6 @@ set_xray_rules() {
     $IPT_BIN -t nat -N XRAY_PREROUTING
     $IPT_BIN -t nat -N XRAY_OUTPUT
 
-    $IPT_BIN -t nat -A XRAY_PREROUTING -d "$ROUTER_IP" -p udp --dport 53 -j REDIRECT --to-ports "$PROXY_PORT"
-    $IPT_BIN -t nat -A XRAY_PREROUTING -d "$ROUTER_IP" -p tcp --dport 53 -j REDIRECT --to-ports "$PROXY_PORT"
     $IPT_BIN -t nat -A XRAY_PREROUTING -d "$ROUTER_IP" -j RETURN
 
     SERVERS=$(extract_server_ips)
@@ -1653,7 +1649,7 @@ send_tg "🟢 Argus-K запущен (конфиг: $(basename "$CURRENT_CONFIG"
 start_background_monitor
 start_tg_poller
 
-log "=== Argus-K запущен (v5.8.5) ==="
+log "=== Argus-K запущен (v5.8.6) ==="
 sleep 10
 
 STATE="UNKNOWN"
