@@ -1,6 +1,6 @@
 #!/bin/sh
 # ============================================================================
-# argus-k.sh  (v5.8.6)
+# argus-k.sh  (v5.8.7)
 # BusyBox ash / KeeneticOS + Entware.
 #
 # Argus-K — автоматическое управление Xray на роутерах Keenetic
@@ -104,8 +104,8 @@ TEST_MAX_TIME="${TEST_MAX_TIME:-15}"
 MIN_STABLE_SECONDS="${MIN_STABLE_SECONDS:-45}"
 TG_POLL_TIMEOUT=5
 BG_MONITOR_INTERVAL="${BG_MONITOR_INTERVAL:-900}"
-WHITELIST_CACHE_TTL="${WHITELIST_CACHE_TTL:-90}"
-WHITELIST_CACHE_TTL_ON="${WHITELIST_CACHE_TTL_ON:-20}"
+WHITELIST_CACHE_TTL="${WHITELIST_CACHE_TTL:-10}"
+WHITELIST_CACHE_TTL_ON="${WHITELIST_CACHE_TTL_ON:-10}"
 TELEGRAM_IPS_TTL="${TELEGRAM_IPS_TTL:-43200}"
 CONFIG_UPDATE_INTERVAL="${CONFIG_UPDATE_INTERVAL:-86400}"
 CONFIG_RETRY_BACKOFF="${CONFIG_RETRY_BACKOFF:-300}"
@@ -1236,22 +1236,41 @@ is_link_up() {
 }
 
 is_ru_site_reachable() {
-    ping -I "$WAN_IF" -c 2 -W 2 77.88.8.8 >/dev/null 2>&1 && return 0
-    curl -s -k -o /dev/null --connect-timeout 4 --max-time 6 \
+    ping -I "$WAN_IF" -c 1 -W 1 77.88.8.8 >/dev/null 2>&1 && return 0
+    curl -s -k -o /dev/null --connect-timeout 2 --max-time 3 \
          --interface "$WAN_IF" "https://77.88.8.8/" 2>/dev/null
     local rc=$?
     [ $rc -ne 7 ] && [ $rc -ne 28 ]
 }
 
 is_public_internet_reachable() {
-    local ip rc
+    # Параллельная проверка канареек: все запускаются одновременно,
+    # общее время = max(таймаутов), а не сумма.
+    # В OPEN первый ответ успевает за 1-2 сек, в WHITELIST все таймаутят за ~3 сек.
+    local tmpdir="$STATE_DIR/canary.$$"
+    rm -rf "$tmpdir"
+    mkdir -p "$tmpdir"
+    local ip
     for ip in $WHITELIST_CANARIES; do
-        curl -s -k -o /dev/null --connect-timeout 4 --max-time 6 \
-             --interface "$WAN_IF" "https://$ip/" 2>/dev/null
-        rc=$?
-        if [ $rc -ne 7 ] && [ $rc -ne 28 ]; then return 0; fi
+        (
+            curl -s -k -o /dev/null --connect-timeout 2 --max-time 3 \
+                 --interface "$WAN_IF" "https://$ip/" 2>/dev/null
+            echo "$?" > "$tmpdir/$ip"
+        ) &
     done
-    return 1
+    wait
+    local rc alive=0
+    for f in "$tmpdir"/*; do
+        [ -f "$f" ] || continue
+        rc=$(cat "$f" 2>/dev/null)
+        [ -z "$rc" ] && continue
+        if [ "$rc" != "7" ] && [ "$rc" != "28" ]; then
+            alive=1
+            break
+        fi
+    done
+    rm -rf "$tmpdir"
+    [ "$alive" -eq 1 ]
 }
 
 WL_STATE="unknown"
@@ -1649,7 +1668,7 @@ send_tg "🟢 Argus-K запущен (конфиг: $(basename "$CURRENT_CONFIG"
 start_background_monitor
 start_tg_poller
 
-log "=== Argus-K запущен (v5.8.6) ==="
+log "=== Argus-K запущен (v5.8.7) ==="
 sleep 10
 
 STATE="UNKNOWN"
