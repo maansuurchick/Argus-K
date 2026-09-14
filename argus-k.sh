@@ -763,26 +763,23 @@ show_configs_keyboard() {
         return
     fi
 
-    local keyboard
-    keyboard=$(jq -R -s '
-        split("\n") | map(select(length > 0)) |
-        to_entries | map(
-            .value as $path | .key as $idx |
-            ($path | sub("^.*/"; "") | sub("^sub_"; "") | sub("\\.json$"; "")) as $name |
-            {
-                text: ((($idx + 1) | tostring) + ". " + ($name | .[0:45])),
-                callback_data: ("use_" + (($idx + 1) | tostring))
-            }
-        ) as $rows |
-        { inline_keyboard: ($rows | map([.])) }
-    ' "$listfile")
+    # Собираем inline_keyboard вручную, без jq
+    local kb='{"inline_keyboard":['
+    local i=0
+    local first=1
+    while IFS= read -r path; do
+        [ -z "$path" ] && continue
+        i=$((i+1))
+        local name=$(basename "$path")
+        name=$(printf '%s' "$name" | sed 's/^sub_//; s/\.json$//')
+        local esc=$(printf '%s' "$name" | sed 's/\\/\\\\/g; s/"/\\"/g')
+        [ "$first" -eq 1 ] || kb="$kb,"
+        first=0
+        kb="${kb}[{\"text\":\"${i}. ${esc}\",\"callback_data\":\"use_${i}\"}]"
+    done < "$listfile"
+    kb="$kb]}"
 
-    if [ -z "$keyboard" ] || ! echo "$keyboard" | grep -q inline_keyboard; then
-        send_tg "Не удалось построить список. Попробуйте /configs ещё раз."
-        return
-    fi
-
-    send_tg_with_markup "Выберите конфиг ($cnt шт.):" "$keyboard"
+    send_tg_with_markup "Выберите конфиг ($cnt шт.):" "$kb"
 }
 
 use_config_by_path() {
