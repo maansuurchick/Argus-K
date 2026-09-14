@@ -1126,10 +1126,19 @@ z2k_status() {
     case "$Z2K_TYPE" in
         none) echo "не используется" ;;
         *)
-            if [ -x "$Z2K_INIT" ]; then
-                "$Z2K_INIT" status 2>/dev/null | head -1 || echo "запущен"
+            local label="$Z2K_TYPE"
+            if [ ! -x "$Z2K_INIT" ]; then
+                echo "$label (не найден)"
+                return
+            fi
+            local out
+            out=$("$Z2K_INIT" status 2>/dev/null)
+            if echo "$out" | grep -qiE "running|started|active|запущен"; then
+                echo "$label (запущен)"
+            elif echo "$out" | grep -qiE "stopped|not running|inactive|остановлен"; then
+                echo "$label (остановлен)"
             else
-                echo "не найден ($Z2K_INIT)"
+                echo "$label (статус неизвестен)"
             fi
             ;;
     esac
@@ -1181,7 +1190,7 @@ Xray: $(is_main_xray_running && echo запущен || echo остановлен
 WL: $WL_STATE
 Редирект: $PROXY_STATE
 Split routing: $SPLIT_ROUTING_ENABLED
-z2k: $(z2k_status)
+Обходчик DPI: $(z2k_status)
 TG-туннель: $TG_TUNNEL_ENABLED
 
 🌐 Канарейки"
@@ -1258,7 +1267,7 @@ Whitelist: $wl
 Split routing: $SPLIT_ROUTING_ENABLED
 TG-туннель: $TG_TUNNEL_ENABLED
 Управление: $mode
-z2k: $(z2k_status)"
+Обходчик DPI: $(z2k_status)"
                 ;;
             /on)
                 MANUAL_MODE=1; MANUAL_PROXY="on"; save_manual_mode; save_manual_proxy
