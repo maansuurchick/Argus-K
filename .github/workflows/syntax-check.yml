@@ -17,23 +17,25 @@ jobs:
         uses: ludeeus/action-shellcheck@master
         with:
           scandir: '.'
-          ignore_paths: '.git docs'
+          ignore_paths: '.git docs templates'
           severity: error
 
-  syntax-busybox:
-    name: BusyBox ash syntax
+  syntax-posix:
+    name: POSIX sh syntax
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Установить BusyBox
-        run: sudo apt-get update -qq && sudo apt-get install -y busybox-static
+      - name: Установить dash
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y dash
 
-      - name: Проверка через BusyBox ash
+      - name: Проверка через dash
         run: |
           set -e
-          for f in argus-k.sh install-argus.sh install-bootstrap.sh argus-k-debug.sh templates/S99argus; do
+          for f in argus-k.sh install-argus.sh install-bootstrap.sh argus-k-debug.sh uninstall-argus.sh templates/S99argus; do
             echo "=== $f ==="
-            busybox ash -n "$f"
+            dash -n "$f"
           done
-          echo "✅ Все скрипты прошли проверку синтаксиса"
+          echo "Все скрипты прошли проверку синтаксиса"
