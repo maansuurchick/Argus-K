@@ -1,6 +1,6 @@
 #!/bin/sh
 # ============================================================================
-# argus-k.sh  (v5.8.7)
+# argus-k.sh  (v5.8.8)
 # BusyBox ash / KeeneticOS + Entware.
 #
 # Argus-K — автоматическое управление Xray на роутерах Keenetic
@@ -1344,10 +1344,12 @@ z2k_status() {
             fi
             local out
             out=$("$Z2K_INIT" status 2>/dev/null)
-            if echo "$out" | grep -qiE "running|started|active|запущен"; then
-                echo "$label (запущен)"
-            elif echo "$out" | grep -qiE "stopped|not running|inactive|остановлен"; then
+            # ВАЖНО: сначала проверяем отрицание, потому что
+            # подстрока "running" входит в "not running".
+            if echo "$out" | grep -qiE "not running|not started|stopped|inactive|остановлен|не запущен"; then
                 echo "$label (остановлен)"
+            elif echo "$out" | grep -qiE "running|started|active|запущен"; then
+                echo "$label (запущен)"
             else
                 echo "$label (статус неизвестен)"
             fi
@@ -1672,7 +1674,7 @@ send_tg "🟢 Argus-K запущен (конфиг: $(basename "$CURRENT_CONFIG"
 start_background_monitor
 start_tg_poller
 
-log "=== Argus-K запущен (v5.8.7) ==="
+log "=== Argus-K запущен (v5.8.8) ==="
 sleep 10
 
 STATE="UNKNOWN"
