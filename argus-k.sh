@@ -1389,11 +1389,11 @@ z2k_stop() {
 }
 z2k_status() {
     case "$Z2K_TYPE" in
-        none) echo "не используется" ;;
+        none) echo "⚪ не используется" ;;
         *)
             local label="$Z2K_TYPE"
             if [ ! -x "$Z2K_INIT" ]; then
-                echo "$label (не найден)"
+                echo "🔴 не найден ($label)"
                 return
             fi
             local pattern=""
@@ -1424,12 +1424,12 @@ z2k_status() {
 
             if [ "$proc_found" -eq 1 ]; then
                 if [ "$init_says" = "running" ]; then
-                    echo "$label (запущен)"
+                    echo "🟢 запущен ($label)"
                 else
-                    echo "$label (запущен, init не видит)"
+                    echo "🟡 запущен, init не видит ($label)"
                 fi
             else
-                echo "$label (остановлен)"
+                echo "⚪ остановлен ($label)"
             fi
             ;;
     esac
@@ -1474,15 +1474,15 @@ LAN: $LOCAL_NET, Router: $ROUTER_IP
     d="$d
 
 ⚙️  Состояние
-Xray: $(is_main_xray_running && echo запущен || echo остановлен)
+Xray: $(is_main_xray_running && echo "🟢 запущен" || echo "🔴 остановлен")
 Конфиг: $(basename "$CURRENT_CONFIG" 2>/dev/null)
 Живых: $(get_live_config_list | wc -l)
-Связь: $(is_link_up && echo есть || echo нет)
-Белый список: $( case "$WL_STATE" in on) echo ВКЛЮЧЁН ;; off) echo выключен ;; *) echo неизвестно ;; esac )
-Редирект: $( [ "$PROXY_STATE" = "on" ] && echo включён || echo выключен )
-Split routing: $( [ "$SPLIT_ROUTING_ENABLED" = "yes" ] && echo включён || echo выключен )
+Связь: $(is_link_up && echo "🟢 есть" || echo "🔴 нет")
+Белый список: $( case "$WL_STATE" in on) echo "🟡 ВКЛ" ;; off) echo "🟢 выкл" ;; *) echo "⚪ ?" ;; esac )
+Редирект: $( [ "$PROXY_STATE" = "on" ] && echo "🟢 вкл" || echo "⚪ выкл" )
+Split routing: $( [ "$SPLIT_ROUTING_ENABLED" = "yes" ] && echo "🟢 вкл" || echo "⚪ выкл" )
 Обходчик DPI: $(z2k_status)
-TG-туннель: $( [ "$TG_TUNNEL_ENABLED" = "yes" ] && echo включён || echo выключен )
+TG-туннель: $( [ "$TG_TUNNEL_ENABLED" = "yes" ] && echo "🟢 вкл" || echo "⚪ выкл" )
 
 🌐 Канарейки"
     for ip in $WHITELIST_CANARIES; do
@@ -1500,8 +1500,8 @@ TG-туннель: $( [ "$TG_TUNNEL_ENABLED" = "yes" ] && echo включён ||
     d="$d
 
 📋 iptables
-XRAY_PREROUTING: $($IPT_BIN -t nat -L XRAY_PREROUTING -n >/dev/null 2>&1 && echo есть || echo нет)
-XRAY_TG_PREROUTING: $($IPT_BIN -t nat -L XRAY_TG_PREROUTING -n >/dev/null 2>&1 && echo есть || echo нет)
+XRAY_PREROUTING: $($IPT_BIN -t nat -L XRAY_PREROUTING -n >/dev/null 2>&1 && echo "🟢 есть" || echo "🔴 нет")
+XRAY_TG_PREROUTING: $($IPT_BIN -t nat -L XRAY_TG_PREROUTING -n >/dev/null 2>&1 && echo "🟢 есть" || echo "🔴 нет")
 PREROUTING→XRAY: $($IPT_BIN -t nat -C PREROUTING -j XRAY_PREROUTING 2>/dev/null && echo активен || echo нет)
 
 📝 Последние 5 строк лога:
@@ -1565,13 +1565,13 @@ process_tg_commands() {
                 ;;
             /status)
                 load_manual_mode; load_proxy_state
-                local xr="не запущен"; is_main_xray_running && xr="запущен"
-                local link="нет"; is_link_up && link="есть"
+                local xr="🔴 не запущен"; is_main_xray_running && xr="🟢 запущен"
+                local link="🔴 нет"; is_link_up && link="🟢 есть"
                 is_whitelist_active
-                local wl="?"
-                [ "$WL_STATE" = "on" ]  && wl="ВКЛЮЧЁН"
-                [ "$WL_STATE" = "off" ] && wl="выключен"
-                local mode="авто"; [ "$MANUAL_MODE" -eq 1 ] && mode="ручной ($MANUAL_PROXY)"
+                local wl="⚪ ?"
+                [ "$WL_STATE" = "on" ]  && wl="🟡 ВКЛ"
+                [ "$WL_STATE" = "off" ] && wl="🟢 выкл"
+                local mode="авто"; [ "$MANUAL_MODE" -eq 1 ] && mode="ручной ($( [ "$MANUAL_PROXY" = "on" ] && echo "🔒 вкл" || echo "🔓 выкл" ))"
                 local live_count=$(get_live_config_list | wc -l)
                 local wan_ip=$(ip -4 -o addr show dev "$WAN_IF" 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -1)
                 send_tg "📊 Argus-K Статус:
@@ -1580,9 +1580,9 @@ Xray: $xr, конфиг: $(basename "$CURRENT_CONFIG" 2>/dev/null)
 WAN: $WAN_IF ($wan_ip)
 Связь: $link
 Белый список: $wl
-Редирект: $( [ "$PROXY_STATE" = "on" ] && echo включён || echo выключен )
-Split routing: $( [ "$SPLIT_ROUTING_ENABLED" = "yes" ] && echo включён || echo выключен )
-TG-туннель: $( [ "$TG_TUNNEL_ENABLED" = "yes" ] && echo включён || echo выключен )
+Редирект: $( [ "$PROXY_STATE" = "on" ] && echo "🟢 вкл" || echo "⚪ выкл" )
+Split routing: $( [ "$SPLIT_ROUTING_ENABLED" = "yes" ] && echo "🟢 вкл" || echo "⚪ выкл" )
+TG-туннель: $( [ "$TG_TUNNEL_ENABLED" = "yes" ] && echo "🟢 вкл" || echo "⚪ выкл" )
 Управление: $mode
 Обходчик DPI: $(z2k_status)"
                 ;;
