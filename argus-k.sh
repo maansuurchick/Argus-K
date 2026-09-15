@@ -1,6 +1,6 @@
 #!/bin/sh
 # ============================================================================
-# argus-k.sh  (v5.8.8)
+# argus-k.sh  (v5.8.9)
 # BusyBox ash / KeeneticOS + Entware.
 #
 # Argus-K — автоматическое управление Xray на роутерах Keenetic
@@ -1324,13 +1324,67 @@ check_vpn_health() {
 z2k_start() {
     case "$Z2K_TYPE" in
         none) return 0 ;;
-        *) [ -x "$Z2K_INIT" ] && "$Z2K_INIT" start > /dev/null 2>&1 ;;
+        *)
+            [ -x "$Z2K_INIT" ] || return 0
+            # Паттерн процессов для этого типа
+            local pattern=""
+            case "$Z2K_TYPE" in
+                nfqws|nfqws2) pattern="nfqws" ;;
+                zapret)       pattern="nfqws|tpws" ;;
+                z2k|z4r)      pattern="nfqws|tpws|zapret" ;;
+                b4)           pattern="b4" ;;
+                custom)       pattern="${Z2K_STATUS_PATTERN:-}" ;;
+            esac
+            # Если процесс уже жив (orphan от прошлого запуска) —
+            # не пытаемся запустить второй. Очередь NFQUEUE занята,
+            # второй экземпляр упадёт с "Operation not permitted".
+            if [ -n "$pattern" ] && ps 2>/dev/null | grep -v grep | grep -qE "$pattern"; then
+                log "z2k_start: процесс уже запущен, второй экземпляр не стартую"
+                return 0
+            fi
+            "$Z2K_INIT" start > /dev/null 2>&1
+            sleep 2
+            if [ -n "$pattern" ] && ! ps 2>/dev/null | grep -v grep | grep -qE "$pattern"; then
+                log "z2k_start WARNING: обходчик $Z2K_TYPE не запустился"
+                send_tg "⚠️ Argus-K: обходчик DPI ($Z2K_TYPE) не запустился"
+                return 1
+            fi
+            return 0
+            ;;
     esac
 }
 z2k_stop() {
     case "$Z2K_TYPE" in
         none) return 0 ;;
-        *) [ -x "$Z2K_INIT" ] && "$Z2K_INIT" stop > /dev/null 2>&1 ;;
+        *)
+            [ -x "$Z2K_INIT" ] || return 0
+            "$Z2K_INIT" stop > /dev/null 2>&1
+            sleep 2
+            local pattern=""
+            case "$Z2K_TYPE" in
+                nfqws|nfqws2) pattern="nfqws" ;;
+                zapret)       pattern="nfqws|tpws" ;;
+                z2k|z4r)      pattern="nfqws|tpws|zapret" ;;
+                b4)           pattern="b4" ;;
+                custom)       pattern="${Z2K_STATUS_PATTERN:-}" ;;
+            esac
+            [ -z "$pattern" ] && return 0
+            # Если init не справился (stale PID-файл) — добиваем сами
+            local left
+            left=$(ps 2>/dev/null | grep -v grep | grep -cE "$pattern")
+            if [ "$left" -gt 0 ]; then
+                log "z2k_stop WARNING: $left процесс(ов) осталось, добиваю kill -9"
+                for p in $(ps 2>/dev/null | grep -v grep | grep -E "$pattern" | awk '{print $1}'); do
+                    kill -9 "$p" 2>/dev/null
+                done
+                # Чистим stale PID-файл, чтобы init не путался
+                rm -f /opt/var/run/nfqws2.pid 2>/dev/null
+                sleep 1
+                left=$(ps 2>/dev/null | grep -v grep | grep -cE "$pattern")
+                [ "$left" -gt 0 ] && log "z2k_stop: не удалось добить всё, осталось $left"
+            fi
+            return 0
+            ;;
     esac
 }
 z2k_status() {
@@ -1342,16 +1396,40 @@ z2k_status() {
                 echo "$label (не найден)"
                 return
             fi
-            local out
+            local pattern=""
+            case "$Z2K_TYPE" in
+                nfqws|nfqws2) pattern="nfqws" ;;
+                zapret)       pattern="nfqws|tpws" ;;
+                z2k|z4r)      pattern="nfqws|tpws|zapret" ;;
+                b4)           pattern="b4" ;;
+                custom)       pattern="${Z2K_STATUS_PATTERN:-}" ;;
+            esac
+
+            # Источник истины — реальные процессы, а не init-скрипт.
+            # Init смотрит stale PID-файл и врёт "not running",
+            # когда процесс на самом деле живёт (nfqws2 после reboot или
+            # неприятного stop).
+            local proc_found=0
+            if [ -n "$pattern" ] && ps 2>/dev/null | grep -v grep | grep -qE "$pattern"; then
+                proc_found=1
+            fi
+
+            local out init_says="unknown"
             out=$("$Z2K_INIT" status 2>/dev/null)
-            # ВАЖНО: сначала проверяем отрицание, потому что
-            # подстрока "running" входит в "not running".
             if echo "$out" | grep -qiE "not running|not started|stopped|inactive|остановлен|не запущен"; then
-                echo "$label (остановлен)"
+                init_says="stopped"
             elif echo "$out" | grep -qiE "running|started|active|запущен"; then
-                echo "$label (запущен)"
+                init_says="running"
+            fi
+
+            if [ "$proc_found" -eq 1 ]; then
+                if [ "$init_says" = "running" ]; then
+                    echo "$label (запущен)"
+                else
+                    echo "$label (запущен, init не видит)"
+                fi
             else
-                echo "$label (статус неизвестен)"
+                echo "$label (остановлен)"
             fi
             ;;
     esac
@@ -1674,7 +1752,7 @@ send_tg "🟢 Argus-K запущен (конфиг: $(basename "$CURRENT_CONFIG"
 start_background_monitor
 start_tg_poller
 
-log "=== Argus-K запущен (v5.8.8) ==="
+log "=== Argus-K запущен (v5.8.9) ==="
 sleep 10
 
 STATE="UNKNOWN"
