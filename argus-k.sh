@@ -1,6 +1,6 @@
 #!/bin/sh
 # ============================================================================
-# argus-k.sh  (v5.8.9)
+# argus-k.sh  (v5.8.10)
 # BusyBox ash / KeeneticOS + Entware.
 #
 # Argus-K — автоматическое управление Xray на роутерах Keenetic
@@ -1331,7 +1331,7 @@ z2k_start() {
             case "$Z2K_TYPE" in
                 nfqws|nfqws2) pattern="nfqws" ;;
                 zapret)       pattern="nfqws|tpws" ;;
-                z2k|z4r)      pattern="nfqws|tpws|zapret" ;;
+                z2k|z4r)      pattern="nfqws|tpws" ;;
                 b4)           pattern="b4" ;;
                 custom)       pattern="${Z2K_STATUS_PATTERN:-}" ;;
             esac
@@ -1364,7 +1364,7 @@ z2k_stop() {
             case "$Z2K_TYPE" in
                 nfqws|nfqws2) pattern="nfqws" ;;
                 zapret)       pattern="nfqws|tpws" ;;
-                z2k|z4r)      pattern="nfqws|tpws|zapret" ;;
+                z2k|z4r)      pattern="nfqws|tpws" ;;
                 b4)           pattern="b4" ;;
                 custom)       pattern="${Z2K_STATUS_PATTERN:-}" ;;
             esac
@@ -1400,7 +1400,7 @@ z2k_status() {
             case "$Z2K_TYPE" in
                 nfqws|nfqws2) pattern="nfqws" ;;
                 zapret)       pattern="nfqws|tpws" ;;
-                z2k|z4r)      pattern="nfqws|tpws|zapret" ;;
+                z2k|z4r)      pattern="nfqws|tpws" ;;
                 b4)           pattern="b4" ;;
                 custom)       pattern="${Z2K_STATUS_PATTERN:-}" ;;
             esac
@@ -1752,7 +1752,7 @@ send_tg "🟢 Argus-K запущен (конфиг: $(basename "$CURRENT_CONFIG"
 start_background_monitor
 start_tg_poller
 
-log "=== Argus-K запущен (v5.8.9) ==="
+log "=== Argus-K запущен (v5.8.10) ==="
 sleep 10
 
 STATE="UNKNOWN"
