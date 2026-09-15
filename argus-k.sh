@@ -1,6 +1,6 @@
 #!/bin/sh
 # ============================================================================
-# argus-k.sh  (v5.8.10)
+# argus-k.sh  (v5.8.11)
 # BusyBox ash / KeeneticOS + Entware.
 #
 # Argus-K — автоматическое управление Xray на роутерах Keenetic
@@ -1478,11 +1478,11 @@ Xray: $(is_main_xray_running && echo запущен || echo остановлен
 Конфиг: $(basename "$CURRENT_CONFIG" 2>/dev/null)
 Живых: $(get_live_config_list | wc -l)
 Связь: $(is_link_up && echo есть || echo нет)
-WL: $WL_STATE
-Редирект: $PROXY_STATE
-Split routing: $SPLIT_ROUTING_ENABLED
+Белый список: $( case "$WL_STATE" in on) echo ВКЛЮЧЁН ;; off) echo выключен ;; *) echo неизвестно ;; esac )
+Редирект: $( [ "$PROXY_STATE" = "on" ] && echo включён || echo выключен )
+Split routing: $( [ "$SPLIT_ROUTING_ENABLED" = "yes" ] && echo включён || echo выключен )
 Обходчик DPI: $(z2k_status)
-TG-туннель: $TG_TUNNEL_ENABLED
+TG-туннель: $( [ "$TG_TUNNEL_ENABLED" = "yes" ] && echo включён || echo выключен )
 
 🌐 Канарейки"
     for ip in $WHITELIST_CANARIES; do
@@ -1579,10 +1579,10 @@ Xray: $xr, конфиг: $(basename "$CURRENT_CONFIG" 2>/dev/null)
 Живых: $live_count
 WAN: $WAN_IF ($wan_ip)
 Связь: $link
-Whitelist: $wl
-Редирект: $PROXY_STATE
-Split routing: $SPLIT_ROUTING_ENABLED
-TG-туннель: $TG_TUNNEL_ENABLED
+Белый список: $wl
+Редирект: $( [ "$PROXY_STATE" = "on" ] && echo включён || echo выключен )
+Split routing: $( [ "$SPLIT_ROUTING_ENABLED" = "yes" ] && echo включён || echo выключен )
+TG-туннель: $( [ "$TG_TUNNEL_ENABLED" = "yes" ] && echo включён || echo выключен )
 Управление: $mode
 Обходчик DPI: $(z2k_status)"
                 ;;
@@ -1752,7 +1752,7 @@ send_tg "🟢 Argus-K запущен (конфиг: $(basename "$CURRENT_CONFIG"
 start_background_monitor
 start_tg_poller
 
-log "=== Argus-K запущен (v5.8.10) ==="
+log "=== Argus-K запущен (v5.8.11) ==="
 sleep 10
 
 STATE="UNKNOWN"
