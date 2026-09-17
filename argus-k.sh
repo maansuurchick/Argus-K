@@ -1,6 +1,6 @@
 #!/bin/sh
 # ============================================================================
-# argus-k.sh  (v5.8.11)
+# argus-k.sh  (v5.8.13)
 # BusyBox ash / KeeneticOS + Entware.
 #
 # Argus-K — автоматическое управление Xray на роутерах Keenetic
@@ -1757,7 +1757,7 @@ send_tg "🟢 Argus-K запущен (конфиг: $(basename "$CURRENT_CONFIG"
 start_background_monitor
 start_tg_poller
 
-log "=== Argus-K запущен (v5.8.11) ==="
+log "=== Argus-K запущен (v5.8.13) ==="
 sleep 10
 
 STATE="UNKNOWN"
