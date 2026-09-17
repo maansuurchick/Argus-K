@@ -838,14 +838,19 @@ tg_send_curl() {
 send_tg() {
     [ -z "$TG_TOKEN" ] && return 0
     local body=$(printf '%s' "$1" | head -c 3800)
-    local cid rc=0
-    for cid in $TG_CHAT_IDS; do
-        [ -z "$cid" ] && continue
-        tg_send_curl --data-urlencode "chat_id=$cid" --data-urlencode "text=$body" >/dev/null 2>&1 || rc=$?
-    done
-    if [ "$rc" -ne 0 ]; then
-        log "send_tg FAILED (rc=$rc)"
-    fi
+    # Отправляем в фоне, чтобы не блокировать главный цикл.
+    # Иначе при падении текущего туннеля curl висит до 30 секунд,
+    # и Argus-K не может переключить конфиг на живой.
+    (
+        local cid rc=0
+        for cid in $TG_CHAT_IDS; do
+            [ -z "$cid" ] && continue
+            tg_send_curl --data-urlencode "chat_id=$cid" --data-urlencode "text=$body" >/dev/null 2>&1 || rc=$?
+        done
+        if [ "$rc" -ne 0 ]; then
+            log "send_tg FAILED (rc=$rc)"
+        fi
+    ) &
 }
 
 send_tg_with_markup() {
