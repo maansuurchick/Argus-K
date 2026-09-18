@@ -1,6 +1,6 @@
 #!/bin/sh
 # ============================================================================
-# argus-k.sh  (v5.8.13)
+# argus-k.sh  (v5.8.14)
 # BusyBox ash / KeeneticOS + Entware.
 #
 # Argus-K — автоматическое управление Xray на роутерах Keenetic
@@ -839,17 +839,21 @@ send_tg() {
     [ -z "$TG_TOKEN" ] && return 0
     local body=$(printf '%s' "$1" | head -c 3800)
     # Отправляем в фоне, чтобы не блокировать главный цикл.
-    # Иначе при падении текущего туннеля curl висит до 30 секунд,
-    # и Argus-K не может переключить конфиг на живой.
+    # И с retry: если текущий туннель умирает ровно в момент
+    # отправки — main loop успеет переключить конфиг, а мы
+    # повторим попытку через живой туннель.
     (
-        local cid rc=0
-        for cid in $TG_CHAT_IDS; do
-            [ -z "$cid" ] && continue
-            tg_send_curl --data-urlencode "chat_id=$cid" --data-urlencode "text=$body" >/dev/null 2>&1 || rc=$?
+        local cid rc attempt
+        for attempt in 1 2 3; do
+            [ "$attempt" -gt 1 ] && sleep $((attempt * 5))
+            rc=0
+            for cid in $TG_CHAT_IDS; do
+                [ -z "$cid" ] && continue
+                tg_send_curl --data-urlencode "chat_id=$cid" --data-urlencode "text=$body" >/dev/null 2>&1 || rc=$?
+            done
+            [ "$rc" -eq 0 ] && exit 0
         done
-        if [ "$rc" -ne 0 ]; then
-            log "send_tg FAILED (rc=$rc)"
-        fi
+        log "send_tg FAILED после 3 попыток (rc=$rc)"
     ) &
 }
 
@@ -1757,7 +1761,7 @@ send_tg "🟢 Argus-K запущен (конфиг: $(basename "$CURRENT_CONFIG"
 start_background_monitor
 start_tg_poller
 
-log "=== Argus-K запущен (v5.8.13) ==="
+log "=== Argus-K запущен (v5.8.14) ==="
 sleep 10
 
 STATE="UNKNOWN"
