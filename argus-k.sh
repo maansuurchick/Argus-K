@@ -1,6 +1,6 @@
 #!/bin/sh
 # ============================================================================
-# argus-k.sh  (v5.8.14)
+# argus-k.sh  (v5.8.15)
 # BusyBox ash / KeeneticOS + Entware.
 #
 # Argus-K — автоматическое управление Xray на роутерах Keenetic
@@ -98,10 +98,10 @@ SPLIT_DOMAINS_FILE="/opt/etc/argus-k-split-domains.txt"
 # --- ПАРАМЕТРЫ ---
 MAIN_LOOP_SLEEP="${MAIN_LOOP_SLEEP:-3}"
 HEALTH_CHECK_INTERVAL="${HEALTH_CHECK_INTERVAL:-4}"
-HEALTH_FAIL_THRESHOLD="${HEALTH_FAIL_THRESHOLD:-1}"
+HEALTH_FAIL_THRESHOLD="${HEALTH_FAIL_THRESHOLD:-2}"
 CONNECT_TIMEOUT="${CONNECT_TIMEOUT:-6}"
 TEST_MAX_TIME="${TEST_MAX_TIME:-15}"
-MIN_STABLE_SECONDS="${MIN_STABLE_SECONDS:-45}"
+MIN_STABLE_SECONDS="${MIN_STABLE_SECONDS:-60}"
 TG_POLL_TIMEOUT=5
 BG_MONITOR_INTERVAL="${BG_MONITOR_INTERVAL:-900}"
 WHITELIST_CACHE_TTL="${WHITELIST_CACHE_TTL:-10}"
@@ -1761,7 +1761,7 @@ send_tg "🟢 Argus-K запущен (конфиг: $(basename "$CURRENT_CONFIG"
 start_background_monitor
 start_tg_poller
 
-log "=== Argus-K запущен (v5.8.14) ==="
+log "=== Argus-K запущен (v5.8.15) ==="
 sleep 10
 
 STATE="UNKNOWN"
