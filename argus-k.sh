@@ -1,6 +1,6 @@
 #!/bin/sh
 # ============================================================================
-# argus-k.sh  (v5.8.15)
+# argus-k.sh  (v5.8.16)
 # BusyBox ash / KeeneticOS + Entware.
 #
 # Argus-K — автоматическое управление Xray на роутерах Keenetic
@@ -106,6 +106,7 @@ TG_POLL_TIMEOUT=5
 BG_MONITOR_INTERVAL="${BG_MONITOR_INTERVAL:-900}"
 WHITELIST_CACHE_TTL="${WHITELIST_CACHE_TTL:-10}"
 WHITELIST_CACHE_TTL_ON="${WHITELIST_CACHE_TTL_ON:-10}"
+WHITELIST_CONFIRM_SECONDS="${WHITELIST_CONFIRM_SECONDS:-20}"
 TELEGRAM_IPS_TTL="${TELEGRAM_IPS_TTL:-43200}"
 CONFIG_UPDATE_INTERVAL="${CONFIG_UPDATE_INTERVAL:-86400}"
 CONFIG_RETRY_BACKOFF="${CONFIG_RETRY_BACKOFF:-300}"
@@ -1761,10 +1762,12 @@ send_tg "🟢 Argus-K запущен (конфиг: $(basename "$CURRENT_CONFIG"
 start_background_monitor
 start_tg_poller
 
-log "=== Argus-K запущен (v5.8.15) ==="
+log "=== Argus-K запущен (v5.8.16) ==="
 sleep 10
 
 STATE="UNKNOWN"
+PENDING_STATE=""
+PENDING_SINCE=0
 HEALTH_COUNTER=0
 HEALTH_FAIL=0
 
@@ -1811,29 +1814,47 @@ while true; do
         fi
 
         if [ "$NEW_STATE" != "$STATE" ] && [ -n "$NEW_STATE" ]; then
-            case "$NEW_STATE" in
-                OPEN)
-                    log "-> OPEN"
-                    disable_redirect
-                    z2k_start
-                    send_tg "🌐 Argus-K: белый список выключен, прямой доступ."
-                    ;;
-                WHITELIST)
-                    log "-> WHITELIST"
-                    enable_redirect
-                    z2k_stop
-                    send_tg "🚧 Argus-K: белый список включён, трафик сети через VPN."
-                    ;;
-                LINK_DOWN)
-                    log "-> LINK_DOWN"
-                    disable_redirect
-                    z2k_stop
-                    send_tg "📴 Argus-K: нет связи с LTE-модемом ($WAN_IF)."
-                    ;;
-            esac
-            STATE="$NEW_STATE"
-            HEALTH_COUNTER=0
-            HEALTH_FAIL=0
+            # Anti-flapping: ждём, пока новый статус продержится
+            # WHITELIST_CONFIRM_SECONDS подряд. Одиночный морг LTE
+            # (канарейки упали → ожили за 10 сек) не переключит STATE.
+            now_ts=$(date +%s)
+            if [ "$NEW_STATE" != "$PENDING_STATE" ]; then
+                PENDING_STATE="$NEW_STATE"
+                PENDING_SINCE=$now_ts
+                log "Кандидат на смену состояния: $NEW_STATE (подтверждаю $WHITELIST_CONFIRM_SECONDS сек)"
+            else
+                pending_duration=$((now_ts - PENDING_SINCE))
+                if [ "$pending_duration" -ge "$WHITELIST_CONFIRM_SECONDS" ]; then
+                    case "$NEW_STATE" in
+                        OPEN)
+                            log "-> OPEN (подтверждено $pending_duration сек)"
+                            disable_redirect
+                            z2k_start
+                            send_tg "🌐 Argus-K: белый список выключен, прямой доступ."
+                            ;;
+                        WHITELIST)
+                            log "-> WHITELIST (подтверждено $pending_duration сек)"
+                            enable_redirect
+                            z2k_stop
+                            send_tg "🚧 Argus-K: белый список включён, трафик сети через VPN."
+                            ;;
+                        LINK_DOWN)
+                            log "-> LINK_DOWN (подтверждено $pending_duration сек)"
+                            disable_redirect
+                            z2k_stop
+                            ;;
+                    esac
+                    STATE="$NEW_STATE"
+                    PENDING_STATE=""
+                    PENDING_SINCE=0
+                    HEALTH_COUNTER=0
+                    HEALTH_FAIL=0
+                fi
+            fi
+        else
+            # Состояние совпадает с текущим — сбрасываем накопление
+            PENDING_STATE=""
+            PENDING_SINCE=0
         fi
     fi
 
