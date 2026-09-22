@@ -1,6 +1,6 @@
 #!/bin/sh
 # ============================================================================
-# argus-k.sh  (v5.8.16)
+# argus-k.sh  (v5.8.17)
 # BusyBox ash / KeeneticOS + Entware.
 #
 # Argus-K — автоматическое управление Xray на роутерах Keenetic
@@ -1521,6 +1521,85 @@ $(tail -n 5 "$LOG_FILE" 2>/dev/null)"
 }
 
 # ============================ TELEGRAM: КОМАНДЫ ==============================
+do_upgrade() {
+    local base="https://raw.githubusercontent.com/maansuurchick/Argus-K/main"
+    local tmp="/tmp/argus-k-upgrade.$$"
+    mkdir -p "$tmp"
+
+    local files="argus-k.sh install-argus.sh argus-k-debug.sh"
+    local updated=0 failed=0 old_ver="" mode=""
+
+    old_ver=$(grep -m1 "^# argus-k.sh  (" "$ARGUS_FILE" 2>/dev/null | sed 's/.*(\(v[^)]*\)).*/\1/')
+    [ -z "$old_ver" ] && old_ver="?"
+
+    # Сначала пробуем напрямую. Если GitHub недоступен (БС) —
+    # переключаемся на SOCKS Xray. Делаем это одной проверкой
+    # на первый файл, чтобы не пытаться дважды для каждого.
+    local probe="$tmp/.probe"
+    if curl -fsSL --connect-timeout 5 --max-time 15 -o /dev/null \
+         "$base/argus-k.sh" 2>/dev/null; then
+        mode="direct"
+        log "upgrade: GitHub доступен напрямую"
+    else
+        mode="socks"
+        log "upgrade: прямой доступ не работает, иду через SOCKS"
+    fi
+
+    local curl_opt=""
+    [ "$mode" = "socks" ] && curl_opt="-x socks5h://127.0.0.1:$SOCKS_PORT"
+
+    for f in $files; do
+        local url="${base}/${f}"
+        local dst="/opt/etc/${f}"
+        local new_file="$tmp/${f}"
+
+        if ! curl $curl_opt -fsSL --connect-timeout 10 --max-time 60 \
+                 "$url" -o "$new_file" 2>/dev/null; then
+            log "upgrade: не удалось скачать $f ($mode)"
+            failed=$((failed + 1))
+            continue
+        fi
+        [ -s "$new_file" ] || { failed=$((failed + 1)); continue; }
+
+        case "$f" in
+            *.sh) sh -n "$new_file" 2>/dev/null || {
+                log "upgrade: $f не прошёл sh -n, отменяю"
+                failed=$((failed + 1))
+                continue
+            } ;;
+        esac
+
+        if cmp -s "$new_file" "$dst" 2>/dev/null; then
+            log "upgrade: $f уже актуален"
+            continue
+        fi
+
+        [ -f "$dst" ] && cp "$dst" "$dst.bak"
+        cp "$new_file" "$dst"
+        chmod +x "$dst"
+        updated=$((updated + 1))
+        log "upgrade: $f обновлён"
+    done
+
+    rm -rf "$tmp"
+
+    if [ "$failed" -gt 0 ] && [ "$updated" -eq 0 ]; then
+        send_tg "❌ Argus-K: не удалось обновить ($mode, ошибок: $failed)"
+        return 1
+    fi
+
+    if [ "$updated" -eq 0 ]; then
+        send_tg "✅ Argus-K: уже последняя версия ($old_ver, $mode)"
+        return 0
+    fi
+
+    local new_ver
+    new_ver=$(grep -m1 "^# argus-k.sh  (" "$ARGUS_FILE" 2>/dev/null | sed 's/.*(\(v[^)]*\)).*/\1/')
+    send_tg "⬆️ Argus-K: обновлено с $old_ver до ${new_ver:-?} ($mode). Перезапускаю..."
+    sleep 2
+    /opt/etc/init.d/S99argus restart >/dev/null 2>&1 &
+}
+
 process_tg_commands() {
     local f proc
     for f in "$TG_QUEUE_DIR"/msg.*; do
@@ -1571,7 +1650,8 @@ process_tg_commands() {
 /restart — перезапустить Xray
 /update — обновить конфиги из подписки
 /diag — диагностический отчёт
-/log — последние строки лога"
+/log — последние строки лога
+/upgrade — обновить сам Argus-K с GitHub"
                 ;;
             /status)
                 load_manual_mode; load_proxy_state
@@ -1648,6 +1728,10 @@ TG-туннель: $( [ "$TG_TUNNEL_ENABLED" = "yes" ] && echo "🟢 вкл" || 
                 local log_text=$(tail -n 20 "$LOG_FILE" 2>/dev/null | head -c 3500)
                 send_tg "📜 Argus-K лог:
 $log_text"
+                ;;
+            /upgrade)
+                send_tg "⏳ Argus-K: проверяю обновления..."
+                do_upgrade
                 ;;
             *)
                 send_tg "Argus-K: неизвестная команда: $text"
@@ -1762,7 +1846,7 @@ send_tg "🟢 Argus-K запущен (конфиг: $(basename "$CURRENT_CONFIG"
 start_background_monitor
 start_tg_poller
 
-log "=== Argus-K запущен (v5.8.16) ==="
+log "=== Argus-K запущен (v5.8.17) ==="
 sleep 10
 
 STATE="UNKNOWN"
