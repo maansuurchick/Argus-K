@@ -79,6 +79,7 @@ TEST_SOCKS_PORT="10888"
 TEST_HTTP_PORT="11888"
 
 # --- ПУТИ ---
+ARGUS_FILE="/opt/etc/argus-k.sh"
 CONFIG_DIR="/opt/etc/xray/configs"
 XRAY_BIN=$(command -v xray || echo "/opt/sbin/xray")
 IPT_BIN="/opt/sbin/iptables"
